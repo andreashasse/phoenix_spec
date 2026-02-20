@@ -1,16 +1,9 @@
 defmodule PhoenixSpecTest do
   use ExUnit.Case
 
-  # Helper to normalize the spec — may come back as iodata (JSON) or a map
-  defp to_spec_map(spec) when is_map(spec), do: spec
-
-  defp to_spec_map(spec) do
-    spec |> IO.iodata_to_binary() |> Jason.decode!()
-  end
-
   defp generate_spec do
     {:ok, spec} = PhoenixSpec.generate_openapi(TestRouter, %{title: "Test API", version: "1.0.0"})
-    to_spec_map(spec)
+    spec
   end
 
   describe "generate_openapi/2" do

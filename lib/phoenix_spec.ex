@@ -17,6 +17,8 @@ defmodule PhoenixSpec do
   Record.defrecordp(:sp_tuple, fields: :any, meta: %{})
   Record.defrecordp(:sp_literal, value: nil, binary_value: nil, meta: %{})
   Record.defrecordp(:sp_simple_type, type: nil, meta: %{})
+  Record.defrecordp(:sp_user_type_ref, type_name: nil, variables: [], meta: %{})
+  Record.defrecordp(:sp_remote_type, type: nil, meta: %{})
 
   @doc """
   Generates an OpenAPI 3.0 specification from a Phoenix router module.
@@ -62,7 +64,8 @@ defmodule PhoenixSpec do
 
   defp maybe_add_request_body(endpoint, verb, controller, body_type) do
     if http_method_supports_body?(verb) do
-      Spectral.OpenAPI.with_request_body(endpoint, controller, body_type)
+      {mod, schema_ref} = resolve_body_type(body_type, controller)
+      Spectral.OpenAPI.with_request_body(endpoint, mod, schema_ref)
     else
       endpoint
     end
@@ -70,8 +73,10 @@ defmodule PhoenixSpec do
 
   defp add_responses(endpoint, controller, responses) do
     Enum.reduce(responses, endpoint, fn {status, body_type}, ep ->
+      {mod, schema_ref} = resolve_body_type(body_type, controller)
+
       Spectral.OpenAPI.response(status, status_code_description(status))
-      |> Spectral.OpenAPI.response_with_body(controller, body_type)
+      |> Spectral.OpenAPI.response_with_body(mod, schema_ref)
       |> then(&Spectral.OpenAPI.add_response(ep, &1))
     end)
   end
@@ -98,6 +103,22 @@ defmodule PhoenixSpec do
     [{status, body_type}]
   end
 
+  # Resolve a body sp_type node to the {module, schema_ref} pair that
+  # spectra_openapi expects. For remote types (cross-module references like
+  # User.t()), we use the type's own module so spectra can look up its type
+  # info and emit a $ref into components/schemas. For inline/primitive types
+  # we fall back to the controller module.
+  defp resolve_body_type(sp_remote_type(type: {mod, name, vars}), _controller) do
+    {mod, {:type, name, length(vars)}}
+  end
+
+  defp resolve_body_type(sp_user_type_ref(type_name: name, variables: vars), controller) do
+    {controller, {:type, name, length(vars)}}
+  end
+
+  defp resolve_body_type(other, controller) do
+    {controller, other}
+  end
 
   @path_param_regex ~r/:([a-zA-Z_][a-zA-Z0-9_]*)/
 
@@ -120,7 +141,7 @@ defmodule PhoenixSpec do
     end)
   end
 
-defp http_method_supports_body?(:post), do: true
+  defp http_method_supports_body?(:post), do: true
   defp http_method_supports_body?(:put), do: true
   defp http_method_supports_body?(:patch), do: true
   defp http_method_supports_body?(_), do: false

@@ -37,9 +37,16 @@ defmodule PhoenixSpec.Controller do
   6. On validation failure, returns a 400 response
   """
 
-  defmacro __using__(_opts) do
+  require Record
+  Record.defrecordp(:sp_function_spec, args: [], return: nil)
+  Record.defrecordp(:sp_literal, value: nil, binary_value: nil, meta: %{})
+  Record.defrecordp(:sp_remote_type, type: nil, meta: %{})
+  Record.defrecordp(:sp_tuple, fields: [], meta: %{})
+  Record.defrecordp(:sp_union, types: [], meta: %{})
+
+  defmacro __using__(opts) do
     quote do
-      use Phoenix.Controller
+      use Phoenix.Controller, unquote(opts)
       use Spectral
 
       @before_compile PhoenixSpec.Controller
@@ -62,35 +69,75 @@ defmodule PhoenixSpec.Controller do
     path_args = conn.path_params
     headers = extract_headers(conn)
 
-    body =
-      case conn.body_params do
-        %Plug.Conn.Unfetched{} -> nil
-        params -> params
+    with {:ok, body} <- decode_request_body(conn, controller, action) do
+      case apply(controller, action, [path_args, headers, body]) do
+        {status, response_headers, response_body} when is_integer(status) ->
+          send_typed_response(conn, controller, action, status, response_headers, response_body)
+
+        other ->
+          raise "PhoenixSpec action #{inspect(controller)}.#{action}/3 must return " <>
+                  "{status, headers, body}, got: #{inspect(other)}"
       end
-
-    case apply(controller, action, [path_args, headers, body]) do
-      {status, response_headers, response_body} when is_integer(status) ->
-        send_typed_response(conn, controller, action, status, response_headers, response_body)
-
-      other ->
-        raise "PhoenixSpec action #{inspect(controller)}.#{action}/3 must return " <>
-                "{status, headers, body}, got: #{inspect(other)}"
+    else
+      {:error, _} ->
+        conn
+        |> Plug.Conn.put_resp_content_type("application/json")
+        |> Plug.Conn.send_resp(
+          400,
+          ~s({"error":"Bad Request","message":"Invalid request parameters"})
+        )
     end
   rescue
     e in FunctionClauseError ->
       if e.module == controller and e.function == action do
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.send_resp(400, ~s({"error":"Bad Request","message":"Invalid request parameters"}))
+        |> Plug.Conn.send_resp(
+          400,
+          ~s({"error":"Bad Request","message":"Invalid request parameters"})
+        )
       else
         reraise e, __STACKTRACE__
       end
   end
 
+  defp decode_request_body(conn, controller, action) do
+    raw_body =
+      case conn.body_params do
+        %Plug.Conn.Unfetched{} -> nil
+        params -> params
+      end
+
+    body_type = lookup_body_type(controller, action)
+
+    case body_type do
+      sp_literal(value: nil) ->
+        {:ok, nil}
+
+      sp_remote_type(type: {mod, name, vars}) ->
+        json = Jason.encode!(raw_body)
+        Spectral.decode(json, mod, {:type, name, length(vars)})
+
+      _other ->
+        {:ok, raw_body}
+    end
+  end
+
+  defp lookup_body_type(controller, action) do
+    type_info = controller.__spectra_type_info__()
+
+    {:ok, [sp_function_spec(args: [_path_args, _headers, body_type]) | _]} =
+      Spectral.TypeInfo.find_function(type_info, action, 3)
+
+    body_type
+  end
+
   defp send_typed_response(conn, controller, action, status, response_headers, response_body) do
     conn = apply_response_headers(conn, response_headers)
+    type_info = controller.__spectra_type_info__()
+    body_type = lookup_response_body_type(type_info, action, status)
 
-    case encode_response_body(controller, action, response_body) do
+    case encode_response_body(type_info, body_type, response_body) do
       {:ok, encoded} ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
@@ -99,21 +146,36 @@ defmodule PhoenixSpec.Controller do
       {:error, _errors} ->
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.send_resp(500, ~s({"error":"Internal Server Error","message":"Response encoding failed"}))
+        |> Plug.Conn.send_resp(
+          500,
+          ~s({"error":"Internal Server Error","message":"Response encoding failed"})
+        )
     end
   end
 
-  defp encode_response_body(_controller, _action, nil), do: {:ok, ""}
+  defp lookup_response_body_type(type_info, action, status) do
+    {:ok, [sp_function_spec(return: return_type) | _]} =
+      Spectral.TypeInfo.find_function(type_info, action, 3)
 
-  defp encode_response_body(_controller, _action, body) when is_struct(body) do
-    struct_module = body.__struct__
-    Spectral.encode(body, struct_module, :t)
+    tuples =
+      case return_type do
+        sp_union(types: types) -> types
+        sp_tuple() = t -> [t]
+      end
+
+    sp_tuple(fields: [_status_type, _headers_type, body_type]) =
+      Enum.find(tuples, fn sp_tuple(fields: [sp_literal(value: s), _, _]) -> s == status end)
+
+    body_type
   end
 
-  defp encode_response_body(controller, action, body) do
-    raise ArgumentError,
-          "#{inspect(controller)}.#{action}/3 must return a struct with a Spectral type " <>
-            "as the response body, got: #{inspect(body)}"
+  defp encode_response_body(_type_info, sp_literal(value: nil), nil), do: {:ok, ""}
+
+  defp encode_response_body(type_info, body_type, body) do
+    case :spectra.encode(:json, type_info, body_type, body) do
+      {:ok, encoded} -> {:ok, IO.iodata_to_binary(encoded)}
+      {:error, _} = err -> err
+    end
   end
 
   defp extract_headers(conn) do

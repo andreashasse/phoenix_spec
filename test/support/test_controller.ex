@@ -1,5 +1,5 @@
 defmodule TestUserController do
-  use PhoenixSpec.Controller
+  use PhoenixSpec.Controller, formats: [:json]
 
   @spec index(map(), map(), nil) :: {200, map(), [TestUser.t()]}
   def index(_path_args, _headers, _body) do
