@@ -19,6 +19,7 @@ defmodule PhoenixSpec do
   Record.defrecordp(:sp_simple_type, type: nil, meta: %{})
   Record.defrecordp(:sp_user_type_ref, type_name: nil, variables: [], meta: %{})
   Record.defrecordp(:sp_remote_type, type: nil, meta: %{})
+  Record.defrecordp(:sp_list, type: nil, meta: %{})
 
   @doc """
   Generates an OpenAPI 3.0 specification from a Phoenix router module.
@@ -110,6 +111,10 @@ defmodule PhoenixSpec do
   # we fall back to the controller module.
   defp resolve_body_type(sp_remote_type(type: {mod, name, vars}), _controller) do
     {mod, {:type, name, length(vars)}}
+  end
+
+  defp resolve_body_type(sp_list(type: sp_remote_type(type: {mod, name, vars})), _controller) do
+    {mod, sp_list(type: sp_remote_type(type: {mod, name, vars}))}
   end
 
   defp resolve_body_type(sp_user_type_ref(type_name: name, variables: vars), controller) do
