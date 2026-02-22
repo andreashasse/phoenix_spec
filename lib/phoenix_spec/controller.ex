@@ -70,6 +70,8 @@ defmodule PhoenixSpec.Controller do
     headers = extract_headers(conn)
 
     with {:ok, body} <- decode_request_body(conn, controller, action) do
+      # FIXME: Decode path args
+      # FIXME: Decode request headers
       case apply(controller, action, [path_args, headers, body]) do
         {status, response_headers, response_body} when is_integer(status) ->
           send_typed_response(conn, controller, action, status, response_headers, response_body)
@@ -79,26 +81,14 @@ defmodule PhoenixSpec.Controller do
                   "{status, headers, body}, got: #{inspect(other)}"
       end
     else
-      {:error, _} ->
+      {:error, errors} ->
+        body =
+          Phoenix.json_library().encode!(%{error: "Bad Request", details: format_errors(errors)})
+
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.send_resp(
-          400,
-          ~s({"error":"Bad Request","message":"Invalid request parameters"})
-        )
+        |> Plug.Conn.send_resp(400, body)
     end
-  rescue
-    e in FunctionClauseError ->
-      if e.module == controller and e.function == action do
-        conn
-        |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.send_resp(
-          400,
-          ~s({"error":"Bad Request","message":"Invalid request parameters"})
-        )
-      else
-        reraise e, __STACKTRACE__
-      end
   end
 
   defp decode_request_body(conn, controller, action) do
@@ -110,17 +100,8 @@ defmodule PhoenixSpec.Controller do
 
     body_type = lookup_body_type(controller, action)
 
-    case body_type do
-      sp_literal(value: nil) ->
-        {:ok, nil}
-
-      sp_remote_type(type: {mod, name, vars}) ->
-        json = Jason.encode!(raw_body)
-        Spectral.decode(json, mod, {:type, name, length(vars)})
-
-      _other ->
-        {:ok, raw_body}
-    end
+    json = Phoenix.json_library().encode!(raw_body)
+    Spectral.decode(json, controller, body_type)
   end
 
   defp lookup_body_type(controller, action) do
@@ -133,8 +114,9 @@ defmodule PhoenixSpec.Controller do
   end
 
   defp send_typed_response(conn, controller, action, status, response_headers, response_body) do
-    conn = apply_response_headers(conn, response_headers)
+    # FIXME: encode response headers
     type_info = controller.__spectra_type_info__()
+    conn = apply_response_headers(conn, response_headers)
     body_type = lookup_response_body_type(type_info, action, status)
 
     case encode_response_body(type_info, body_type, response_body) do
@@ -154,6 +136,7 @@ defmodule PhoenixSpec.Controller do
   end
 
   defp lookup_response_body_type(type_info, action, status) do
+    # FIXME: Also lookup response header types
     {:ok, [sp_function_spec(return: return_type) | _]} =
       Spectral.TypeInfo.find_function(type_info, action, 3)
 
@@ -189,4 +172,13 @@ defmodule PhoenixSpec.Controller do
   end
 
   defp apply_response_headers(conn, _), do: conn
+
+  defp format_errors(errors) when is_list(errors) do
+    Enum.map(errors, fn %Spectral.Error{location: location, type: type} ->
+      %{
+        type: type,
+        location: Enum.map(location, &to_string/1)
+      }
+    end)
+  end
 end

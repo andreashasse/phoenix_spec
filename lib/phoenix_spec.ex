@@ -17,15 +17,12 @@ defmodule PhoenixSpec do
   Record.defrecordp(:sp_tuple, fields: :any, meta: %{})
   Record.defrecordp(:sp_literal, value: nil, binary_value: nil, meta: %{})
   Record.defrecordp(:sp_simple_type, type: nil, meta: %{})
-  Record.defrecordp(:sp_user_type_ref, type_name: nil, variables: [], meta: %{})
-  Record.defrecordp(:sp_remote_type, type: nil, meta: %{})
-  Record.defrecordp(:sp_list, type: nil, meta: %{})
 
   @doc """
   Generates an OpenAPI 3.0 specification from a Phoenix router module.
 
   Introspects all routes in the router, extracts type information from
-  controllers via `__spectra_type_info__/0`, and builds an OpenAPI spec.
+  controllers, and builds an OpenAPI spec.
 
   ## Parameters
 
@@ -59,14 +56,14 @@ defmodule PhoenixSpec do
 
     Spectral.OpenAPI.endpoint(verb, phoenix_path_to_openapi_path(path))
     |> maybe_add_request_body(verb, controller, body_type)
+    # FIXME: add request headers
     |> add_path_parameters(path, controller)
     |> add_responses(controller, extract_responses(return_type))
   end
 
   defp maybe_add_request_body(endpoint, verb, controller, body_type) do
     if http_method_supports_body?(verb) do
-      {mod, schema_ref} = resolve_body_type(body_type, controller)
-      Spectral.OpenAPI.with_request_body(endpoint, mod, schema_ref)
+      Spectral.OpenAPI.with_request_body(endpoint, controller, body_type)
     else
       endpoint
     end
@@ -74,10 +71,9 @@ defmodule PhoenixSpec do
 
   defp add_responses(endpoint, controller, responses) do
     Enum.reduce(responses, endpoint, fn {status, body_type}, ep ->
-      {mod, schema_ref} = resolve_body_type(body_type, controller)
-
+      # FIXME: Also add response headers
       Spectral.OpenAPI.response(status, status_code_description(status))
-      |> Spectral.OpenAPI.response_with_body(mod, schema_ref)
+      |> Spectral.OpenAPI.response_with_body(controller, body_type)
       |> then(&Spectral.OpenAPI.add_response(ep, &1))
     end)
   end
@@ -104,27 +100,6 @@ defmodule PhoenixSpec do
     [{status, body_type}]
   end
 
-  # Resolve a body sp_type node to the {module, schema_ref} pair that
-  # spectra_openapi expects. For remote types (cross-module references like
-  # User.t()), we use the type's own module so spectra can look up its type
-  # info and emit a $ref into components/schemas. For inline/primitive types
-  # we fall back to the controller module.
-  defp resolve_body_type(sp_remote_type(type: {mod, name, vars}), _controller) do
-    {mod, {:type, name, length(vars)}}
-  end
-
-  defp resolve_body_type(sp_list(type: sp_remote_type(type: {mod, name, vars})), _controller) do
-    {mod, sp_list(type: sp_remote_type(type: {mod, name, vars}))}
-  end
-
-  defp resolve_body_type(sp_user_type_ref(type_name: name, variables: vars), controller) do
-    {controller, {:type, name, length(vars)}}
-  end
-
-  defp resolve_body_type(other, controller) do
-    {controller, other}
-  end
-
   @path_param_regex ~r/:([a-zA-Z_][a-zA-Z0-9_]*)/
 
   defp phoenix_path_to_openapi_path(path) do
@@ -132,6 +107,7 @@ defmodule PhoenixSpec do
   end
 
   defp add_path_parameters(endpoint, path, controller) do
+    # FIXME: Take the path parameters from the type of the first argument of the action function
     param_names = Regex.scan(@path_param_regex, path, capture: :all_but_first)
 
     Enum.reduce(param_names, endpoint, fn [name], ep ->
