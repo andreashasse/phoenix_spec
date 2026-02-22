@@ -5,8 +5,8 @@ defmodule Example.UserController do
 
   # In-memory store for demo purposes
   @users %{
-    "1" => %User{id: 1, name: "Alice", email: "alice@example.com"},
-    "2" => %User{id: 2, name: "Bob", email: "bob@example.com"}
+    "1" => %User{id: 1, name: "Andreas", email: "andreas@example.com"},
+    "2" => %User{id: 2, name: "Hasse", email: "hasse@example.com"}
   }
 
   @spec index(map(), map(), nil) :: {200, map(), [User.t()]}
