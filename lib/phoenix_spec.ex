@@ -13,10 +13,12 @@ defmodule PhoenixSpec do
   # Records from deps/spectra/include/spectra_internal.hrl
   require Record
   Record.defrecordp(:sp_function_spec, args: [], return: nil)
-  Record.defrecordp(:sp_union, types: [], meta: %{})
-  Record.defrecordp(:sp_tuple, fields: :any, meta: %{})
   Record.defrecordp(:sp_literal, value: nil, binary_value: nil, meta: %{})
-  Record.defrecordp(:sp_simple_type, type: nil, meta: %{})
+  Record.defrecordp(:sp_map, fields: [], struct_name: nil, meta: %{})
+  Record.defrecordp(:sp_tuple, fields: :any, meta: %{})
+  Record.defrecordp(:sp_union, types: [], meta: %{})
+  Record.defrecordp(:sp_user_type_ref, type_name: nil, variables: [], meta: %{})
+  Record.defrecordp(:literal_map_field, kind: nil, name: nil, binary_name: nil, val_type: nil)
 
   @doc """
   Generates an OpenAPI 3.0 specification from a Phoenix router module.
@@ -51,13 +53,13 @@ defmodule PhoenixSpec do
   end
 
   defp route_to_endpoint(%{verb: verb, path: path, plug: controller, plug_opts: action}) do
-    {_path_args, _headers, body_type, return_type} =
+    {path_args_type, headers_type, body_type, return_type} =
       extract_handler_type(controller, action)
 
     Spectral.OpenAPI.endpoint(verb, phoenix_path_to_openapi_path(path))
     |> maybe_add_request_body(verb, controller, body_type)
-    # FIXME: add request headers
-    |> add_path_parameters(path, controller)
+    |> add_header_parameters(controller, headers_type)
+    |> add_path_parameters(controller, path_args_type)
     |> add_responses(controller, extract_responses(return_type))
   end
 
@@ -100,22 +102,49 @@ defmodule PhoenixSpec do
     [{status, body_type}]
   end
 
+  defp add_header_parameters(endpoint, controller, headers_type) do
+    type_info = controller.__spectra_type_info__()
+    sp_map(fields: fields) = resolve_type_ref(headers_type, type_info)
+
+    Enum.reduce(fields, endpoint, fn field, ep ->
+      literal_map_field(kind: kind, binary_name: binary_name, val_type: val_type) = field
+
+      param_spec = %{
+        name: binary_name,
+        in: :header,
+        required: kind == :exact,
+        schema: val_type
+      }
+
+      Spectral.OpenAPI.with_parameter(ep, controller, param_spec)
+    end)
+  end
+
+  defp resolve_type_ref(sp_user_type_ref(type_name: name), type_info) do
+    {:ok, resolved} = Spectral.TypeInfo.find_type(type_info, name, 0)
+    resolved
+  end
+
+  defp resolve_type_ref(type, _type_info), do: type
+
   @path_param_regex ~r/:([a-zA-Z_][a-zA-Z0-9_]*)/
 
   defp phoenix_path_to_openapi_path(path) do
     Regex.replace(@path_param_regex, path, "{\\1}")
   end
 
-  defp add_path_parameters(endpoint, path, controller) do
-    # FIXME: Take the path parameters from the type of the first argument of the action function
-    param_names = Regex.scan(@path_param_regex, path, capture: :all_but_first)
+  defp add_path_parameters(endpoint, controller, path_args_type) do
+    type_info = controller.__spectra_type_info__()
+    sp_map(fields: fields) = resolve_type_ref(path_args_type, type_info)
 
-    Enum.reduce(param_names, endpoint, fn [name], ep ->
+    Enum.reduce(fields, endpoint, fn field, ep ->
+      literal_map_field(binary_name: binary_name, val_type: val_type) = field
+
       param_spec = %{
-        name: name,
+        name: binary_name,
         in: :path,
         required: true,
-        schema: sp_simple_type(type: :binary)
+        schema: val_type
       }
 
       Spectral.OpenAPI.with_parameter(ep, controller, param_spec)

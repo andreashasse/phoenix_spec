@@ -3,7 +3,8 @@ defmodule TestUser do
 
   defstruct [:id, :name, :email]
 
-  spectral title: "User", description: "A user resource"
+  spectral(title: "User", description: "A user resource")
+
   @type t :: %TestUser{
           id: non_neg_integer() | nil,
           name: String.t(),
@@ -16,7 +17,8 @@ defmodule TestUserInput do
 
   defstruct [:name, :email]
 
-  spectral title: "UserInput", description: "Input for creating a user"
+  spectral(title: "UserInput", description: "Input for creating a user")
+
   @type t :: %TestUserInput{
           name: String.t(),
           email: String.t()
@@ -28,6 +30,6 @@ defmodule TestError do
 
   defstruct [:message]
 
-  spectral title: "Error", description: "An error response"
+  spectral(title: "Error", description: "An error response")
   @type t :: %TestError{message: String.t()}
 end

@@ -3,13 +3,24 @@ defmodule PhoenixSpec.ControllerTest do
 
   import Plug.Test
 
-  defp dispatch(method, path, body_params, path_params \\ %{}) do
+  defp dispatch(method, path, body_params, path_params \\ %{}, req_headers \\ []) do
     conn =
       conn(method, path, body_params)
       |> Map.put(:path_params, path_params)
+      |> Map.put(:req_headers, req_headers)
       |> Phoenix.Controller.put_format("json")
 
     PhoenixSpec.Controller.dispatch(conn, TestUserController, action_from_path(method, path))
+  end
+
+  defp dispatch_header(action, path_params, req_headers) do
+    conn =
+      conn(:get, "/", nil)
+      |> Map.put(:path_params, path_params)
+      |> Map.put(:req_headers, req_headers)
+      |> Phoenix.Controller.put_format("json")
+
+    PhoenixSpec.Controller.dispatch(conn, TestHeaderController, action)
   end
 
   defp action_from_path(:post, "/users"), do: :create
@@ -55,6 +66,117 @@ defmodule PhoenixSpec.ControllerTest do
       body = Jason.decode!(conn.resp_body)
       assert body["name"] == "Alice"
       assert body["email"] == "alice@example.com"
+    end
+  end
+
+  describe "dispatch/3 with request headers" do
+    test "returns 400 when a required header is missing" do
+      conn = dispatch_header(:show, %{"id" => "1"}, [])
+
+      assert conn.status == 400
+      body = Jason.decode!(conn.resp_body)
+      assert body["error"] == "Bad Request"
+      assert [%{"type" => "missing_data", "location" => ["x-user-id"]}] = body["details"]
+    end
+
+    test "returns 200 when the required header is present" do
+      conn = dispatch_header(:show, %{"id" => "1"}, [{"x-user-id", "alice"}])
+
+      assert conn.status == 200
+      body = Jason.decode!(conn.resp_body)
+      assert body["name"] == "alice"
+    end
+
+    test "returns 200 when an optional header is absent" do
+      conn = dispatch_header(:index, %{}, [])
+
+      assert conn.status == 200
+    end
+
+    test "returns 200 when an optional header is present" do
+      conn = dispatch_header(:index, %{}, [{"x-trace-id", "abc123"}])
+
+      assert conn.status == 200
+    end
+  end
+
+  describe "dispatch/3 with typed response headers" do
+    defp dispatch_header_action(action, path_params \\ %{}) do
+      conn(:get, "/", nil)
+      |> Map.put(:path_params, path_params)
+      |> Map.put(:req_headers, [])
+      |> Phoenix.Controller.put_format("json")
+      |> then(&PhoenixSpec.Controller.dispatch(&1, TestHeaderController, action))
+    end
+
+    test "single return code: encodes integer response header to string" do
+      conn = dispatch_header_action(:list_with_count)
+
+      assert conn.status == 200
+      # The action returns %{:"x-count" => 1} (integer), typed as integer().
+      # The response header must be a binary string, so it should be encoded as "1".
+      assert Plug.Conn.get_resp_header(conn, "x-count") == ["1"]
+    end
+
+    test "single return code: raises when response header value has wrong type" do
+      assert_raise MatchError, fn ->
+        dispatch_header_action(:list_with_string_count)
+      end
+    end
+
+    test "union return codes: encodes typed response header for matching status" do
+      conn = dispatch_header_action(:search, %{"id" => "1"})
+
+      assert conn.status == 200
+      assert Plug.Conn.get_resp_header(conn, "x-count") == ["1"]
+    end
+
+    test "union return codes: uses correct (empty) headers type for the other status" do
+      conn = dispatch_header_action(:search, %{"id" => "unknown"})
+
+      assert conn.status == 404
+      assert Plug.Conn.get_resp_header(conn, "x-count") == []
+    end
+  end
+
+  describe "dispatch/3 with integer path arg type" do
+    defp dispatch_integer_id(raw_id) do
+      conn =
+        conn(:get, "/", nil)
+        |> Map.put(:path_params, %{"id" => raw_id})
+        |> Map.put(:req_headers, [])
+        |> Phoenix.Controller.put_format("json")
+
+      PhoenixSpec.Controller.dispatch(conn, TestUserController, :show_by_integer_id)
+    end
+
+    test "coerces a numeric string path param to integer" do
+      conn = dispatch_integer_id("42")
+
+      assert conn.status == 200
+      # The action passes id through to TestUser.id unchanged, so reading the
+      # response body tells us what type the action actually received.
+      body = Jason.decode!(conn.resp_body)
+      assert body["id"] == 42
+    end
+
+    test "returns 400 when the path param cannot be coerced to integer" do
+      conn = dispatch_integer_id("not-a-number")
+
+      assert conn.status == 400
+    end
+  end
+
+  describe "dispatch/3 with path args" do
+    test "path args are decoded and passed as atom-keyed map" do
+      conn =
+        dispatch(:put, "/users/:id", %{"name" => "Bob", "email" => "bob@example.com"}, %{
+          "id" => "1"
+        })
+
+      assert conn.status == 200
+      body = Jason.decode!(conn.resp_body)
+      assert body["name"] == "Bob"
     end
   end
 end

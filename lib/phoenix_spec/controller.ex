@@ -12,13 +12,13 @@ defmodule PhoenixSpec.Controller do
       defmodule MyAppWeb.UserController do
         use PhoenixSpec.Controller
 
-        @spec show(map(), map(), nil) :: {200, map(), User.t()}
+        @spec show(map(), %{}, nil) :: {200, map(), User.t()}
         def show(path_args, _headers, _body) do
           user = Repo.get!(User, path_args.id)
           {200, %{}, user}
         end
 
-        @spec create(map(), map(), UserInput.t()) :: {201, map(), User.t()} | {422, map(), Error.t()}
+        @spec create(map(), %{}, UserInput.t()) :: {201, map(), User.t()} | {422, map(), Error.t()}
         def create(_path_args, _headers, body) do
           case Repo.insert(body) do
             {:ok, user} -> {201, %{}, user}
@@ -40,9 +40,12 @@ defmodule PhoenixSpec.Controller do
   require Record
   Record.defrecordp(:sp_function_spec, args: [], return: nil)
   Record.defrecordp(:sp_literal, value: nil, binary_value: nil, meta: %{})
+  Record.defrecordp(:sp_map, fields: [], struct_name: nil, meta: %{})
   Record.defrecordp(:sp_remote_type, type: nil, meta: %{})
   Record.defrecordp(:sp_tuple, fields: [], meta: %{})
   Record.defrecordp(:sp_union, types: [], meta: %{})
+  Record.defrecordp(:sp_user_type_ref, type_name: nil, variables: [], meta: %{})
+  Record.defrecordp(:literal_map_field, kind: nil, name: nil, binary_name: nil, val_type: nil)
 
   defmacro __using__(opts) do
     quote do
@@ -66,12 +69,9 @@ defmodule PhoenixSpec.Controller do
 
   @doc false
   def dispatch(conn, controller, action) do
-    path_args = conn.path_params
-    headers = extract_headers(conn)
-
-    with {:ok, body} <- decode_request_body(conn, controller, action) do
-      # FIXME: Decode path args
-      # FIXME: Decode request headers
+    with {:ok, path_args} <- decode_path_args(conn, controller, action),
+         {:ok, headers} <- decode_request_headers(conn, controller, action),
+         {:ok, body} <- decode_request_body(conn, controller, action) do
       case apply(controller, action, [path_args, headers, body]) do
         {status, response_headers, response_body} when is_integer(status) ->
           send_typed_response(conn, controller, action, status, response_headers, response_body)
@@ -92,31 +92,87 @@ defmodule PhoenixSpec.Controller do
   end
 
   defp decode_request_body(conn, controller, action) do
+    {_path_args_type, _headers_type, body_type} = lookup_action_types(controller, action)
+
     raw_body =
       case conn.body_params do
         %Plug.Conn.Unfetched{} -> nil
         params -> params
       end
 
-    body_type = lookup_body_type(controller, action)
-
     json = Phoenix.json_library().encode!(raw_body)
     Spectral.decode(json, controller, body_type)
   end
 
-  defp lookup_body_type(controller, action) do
+  defp lookup_action_types(controller, action) do
     type_info = controller.__spectra_type_info__()
 
-    {:ok, [sp_function_spec(args: [_path_args, _headers, body_type]) | _]} =
+    {:ok, [sp_function_spec(args: [path_args_type, headers_type, body_type]) | _]} =
       Spectral.TypeInfo.find_function(type_info, action, 3)
 
-    body_type
+    {path_args_type, headers_type, body_type}
   end
 
-  defp send_typed_response(conn, controller, action, status, response_headers, response_body) do
-    # FIXME: encode response headers
+  defp decode_path_args(conn, controller, action) do
+    {path_args_type, _headers_type, _body_type} = lookup_action_types(controller, action)
     type_info = controller.__spectra_type_info__()
-    conn = apply_response_headers(conn, response_headers)
+    sp_map(fields: fields) = resolve_type_ref(path_args_type, type_info)
+    raw_path_params = conn.path_params
+
+    Enum.reduce_while(fields, {:ok, %{}}, fn field, {:ok, acc} ->
+      literal_map_field(name: name, binary_name: binary_name, val_type: val_type) = field
+
+      case Map.fetch(raw_path_params, binary_name) do
+        {:ok, raw_value} ->
+          case Spectral.decode(raw_value, type_info, val_type, :binary_string) do
+            {:ok, decoded} -> {:cont, {:ok, Map.put(acc, name, decoded)}}
+            {:error, errors} -> {:halt, {:error, errors}}
+          end
+
+        :error ->
+          raise "PhoenixSpec: path param #{inspect(binary_name)} declared in typespec for " <>
+                  "#{inspect(controller)}.#{action}/3 is not present in conn.path_params. " <>
+                  "Does the router path match the typespec?"
+      end
+    end)
+  end
+
+  defp decode_request_headers(conn, controller, action) do
+    {_path_args_type, headers_type, _body_type} = lookup_action_types(controller, action)
+    type_info = controller.__spectra_type_info__()
+    sp_map(fields: fields) = resolve_type_ref(headers_type, type_info)
+    raw_headers = conn.req_headers
+
+    Enum.reduce_while(fields, {:ok, %{}}, fn field, {:ok, acc} ->
+      literal_map_field(kind: kind, name: name, binary_name: binary_name, val_type: val_type) =
+        field
+
+      case List.keyfind(raw_headers, binary_name, 0) do
+        {_key, raw_value} ->
+          case :spectra.decode(:binary_string, type_info, val_type, raw_value) do
+            {:ok, decoded} -> {:cont, {:ok, Map.put(acc, name, decoded)}}
+            {:error, errors} -> {:halt, {:error, errors}}
+          end
+
+        nil when kind == :exact ->
+          {:halt, {:error, [%Spectral.Error{type: :missing_data, location: [name]}]}}
+
+        nil ->
+          {:cont, {:ok, acc}}
+      end
+    end)
+  end
+
+  defp resolve_type_ref(sp_user_type_ref(type_name: name), type_info) do
+    {:ok, resolved} = Spectral.TypeInfo.find_type(type_info, name, 0)
+    resolve_type_ref(resolved, type_info)
+  end
+
+  defp resolve_type_ref(type, _type_info), do: type
+
+  defp send_typed_response(conn, controller, action, status, response_headers, response_body) do
+    type_info = controller.__spectra_type_info__()
+    conn = encode_response_headers(conn, type_info, action, status, response_headers)
     body_type = lookup_response_body_type(type_info, action, status)
 
     case encode_response_body(type_info, body_type, response_body) do
@@ -135,8 +191,7 @@ defmodule PhoenixSpec.Controller do
     end
   end
 
-  defp lookup_response_body_type(type_info, action, status) do
-    # FIXME: Also lookup response header types
+  defp find_return_tuple(type_info, action, status) do
     {:ok, [sp_function_spec(return: return_type) | _]} =
       Spectral.TypeInfo.find_function(type_info, action, 3)
 
@@ -146,10 +201,21 @@ defmodule PhoenixSpec.Controller do
         sp_tuple() = t -> [t]
       end
 
+    Enum.find(tuples, fn sp_tuple(fields: [sp_literal(value: s), _, _]) -> s == status end)
+  end
+
+  defp lookup_response_body_type(type_info, action, status) do
     sp_tuple(fields: [_status_type, _headers_type, body_type]) =
-      Enum.find(tuples, fn sp_tuple(fields: [sp_literal(value: s), _, _]) -> s == status end)
+      find_return_tuple(type_info, action, status)
 
     body_type
+  end
+
+  defp lookup_response_headers_type(type_info, action, status) do
+    sp_tuple(fields: [_status_type, headers_type, _body_type]) =
+      find_return_tuple(type_info, action, status)
+
+    headers_type
   end
 
   defp encode_response_body(_type_info, sp_literal(value: nil), nil), do: {:ok, ""}
@@ -161,17 +227,28 @@ defmodule PhoenixSpec.Controller do
     end
   end
 
-  defp extract_headers(conn) do
-    Map.new(conn.req_headers)
-  end
+  defp encode_response_headers(conn, type_info, action, status, response_headers) do
+    headers_type = lookup_response_headers_type(type_info, action, status)
+    sp_map(fields: fields) = resolve_type_ref(headers_type, type_info)
 
-  defp apply_response_headers(conn, headers) when is_map(headers) do
-    Enum.reduce(headers, conn, fn {key, value}, acc ->
-      Plug.Conn.put_resp_header(acc, to_string(key), to_string(value))
+    Enum.reduce(fields, conn, fn field, acc ->
+      literal_map_field(kind: kind, name: name, binary_name: binary_name, val_type: val_type) =
+        field
+
+      case Map.fetch(response_headers, name) do
+        {:ok, value} ->
+          {:ok, encoded} = Spectral.encode(value, type_info, val_type, :binary_string)
+          Plug.Conn.put_resp_header(acc, binary_name, encoded)
+
+        :error when kind == :exact ->
+          raise "PhoenixSpec: required response header #{inspect(binary_name)} declared in " <>
+                  "typespec for #{action}/3 is missing from the response"
+
+        :error ->
+          acc
+      end
     end)
   end
-
-  defp apply_response_headers(conn, _), do: conn
 
   defp format_errors(errors) when is_list(errors) do
     Enum.map(errors, fn %Spectral.Error{location: location, type: type} ->
