@@ -93,6 +93,7 @@ defmodule PhoenixSpec.Controller do
 
   defp decode_request_body(conn, controller, action) do
     {_path_args_type, _headers_type, body_type} = lookup_action_types(controller, action)
+    type_info = controller.__spectra_type_info__()
 
     raw_body =
       case conn.body_params do
@@ -100,8 +101,7 @@ defmodule PhoenixSpec.Controller do
         params -> params
       end
 
-    json = Phoenix.json_library().encode!(raw_body)
-    Spectral.decode(json, controller, body_type)
+    Spectral.decode(raw_body, type_info, body_type, :json, [:pre_decoded])
   end
 
   defp lookup_action_types(controller, action) do

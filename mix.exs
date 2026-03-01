@@ -28,7 +28,11 @@ defmodule PhoenixSpec.MixProject do
       {:phoenix, "~> 1.7"},
       {:spectral,
        git: "https://github.com/andreashasse/spectral.git",
-       branch: "add-spectra-introspection-function"},
+       branch: "json-term-option"},
+      {:spectra,
+       git: "https://github.com/andreashasse/spectra.git",
+       branch: "json-term-option",
+       override: true},
       {:jason, "~> 1.0", only: :test}
     ]
   end
