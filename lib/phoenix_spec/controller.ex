@@ -65,7 +65,6 @@ defmodule PhoenixSpec.Controller do
     end
   end
 
-  @doc false
   def dispatch(conn, controller, action) do
     with {:ok, path_args} <- decode_path_args(conn, controller, action),
          {:ok, headers} <- decode_request_headers(conn, controller, action),

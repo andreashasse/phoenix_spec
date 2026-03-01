@@ -3,30 +3,27 @@ defmodule PhoenixSpec.ControllerTest do
 
   import Plug.Test
 
-  defp dispatch(method, path, body_params, path_params \\ %{}, req_headers \\ []) do
-    conn =
-      conn(method, path, body_params)
-      |> Map.put(:path_params, path_params)
-      |> Map.put(:req_headers, req_headers)
-      |> Phoenix.Controller.put_format("json")
+  defp call(controller, action, method, path, body_params, path_params, req_headers) do
+    conn(method, path, body_params)
+    |> Map.put(:path_params, path_params)
+    |> Map.put(:req_headers, req_headers)
+    |> Phoenix.Controller.put_format("json")
+    |> Plug.Conn.put_private(:phoenix_action, action)
+    |> controller.action([])
+  end
 
-    PhoenixSpec.Controller.dispatch(conn, TestUserController, action_from_path(method, path))
+  defp dispatch(method, path, body_params, path_params \\ %{}, req_headers \\ []) do
+    call(TestUserController, action_from_path(method, path), method, path, body_params, path_params, req_headers)
   end
 
   defp dispatch_header(action, path_params, req_headers) do
-    conn =
-      conn(:get, "/", nil)
-      |> Map.put(:path_params, path_params)
-      |> Map.put(:req_headers, req_headers)
-      |> Phoenix.Controller.put_format("json")
-
-    PhoenixSpec.Controller.dispatch(conn, TestHeaderController, action)
+    call(TestHeaderController, action, :get, "/", nil, path_params, req_headers)
   end
 
   defp action_from_path(:post, "/users"), do: :create
   defp action_from_path(:put, "/users/:id"), do: :update
 
-  describe "dispatch/3 with invalid request body" do
+  describe "PhoenixSpec.Controller with invalid request body" do
     test "returns 400 with field-level detail when a field has the wrong type" do
       conn = dispatch(:post, "/users", %{"name" => 123, "email" => "test@example.com"})
 
@@ -58,7 +55,7 @@ defmodule PhoenixSpec.ControllerTest do
     end
   end
 
-  describe "dispatch/3 with valid request body" do
+  describe "PhoenixSpec.Controller with valid request body" do
     test "returns 201 on valid create" do
       conn = dispatch(:post, "/users", %{"name" => "Alice", "email" => "alice@example.com"})
 
@@ -69,7 +66,7 @@ defmodule PhoenixSpec.ControllerTest do
     end
   end
 
-  describe "dispatch/3 with request headers" do
+  describe "PhoenixSpec.Controller with request headers" do
     test "returns 400 when a required header is missing" do
       conn = dispatch_header(:show, %{"id" => "1"}, [])
 
@@ -100,13 +97,14 @@ defmodule PhoenixSpec.ControllerTest do
     end
   end
 
-  describe "dispatch/3 with typed response headers" do
+  describe "PhoenixSpec.Controller with typed response headers" do
     defp dispatch_header_action(action, path_params \\ %{}) do
       conn(:get, "/", nil)
       |> Map.put(:path_params, path_params)
       |> Map.put(:req_headers, [])
       |> Phoenix.Controller.put_format("json")
-      |> then(&PhoenixSpec.Controller.dispatch(&1, TestHeaderController, action))
+      |> Plug.Conn.put_private(:phoenix_action, action)
+      |> TestHeaderController.action([])
     end
 
     test "single return code: encodes integer response header to string" do
@@ -139,7 +137,7 @@ defmodule PhoenixSpec.ControllerTest do
     end
   end
 
-  describe "dispatch/3 with integer path arg type" do
+  describe "PhoenixSpec.Controller with integer path arg type" do
     defp dispatch_integer_id(raw_id) do
       conn =
         conn(:get, "/", nil)
@@ -147,7 +145,9 @@ defmodule PhoenixSpec.ControllerTest do
         |> Map.put(:req_headers, [])
         |> Phoenix.Controller.put_format("json")
 
-      PhoenixSpec.Controller.dispatch(conn, TestUserController, :show_by_integer_id)
+      conn
+      |> Plug.Conn.put_private(:phoenix_action, :show_by_integer_id)
+      |> TestUserController.action([])
     end
 
     test "coerces a numeric string path param to integer" do
@@ -167,7 +167,7 @@ defmodule PhoenixSpec.ControllerTest do
     end
   end
 
-  describe "dispatch/3 with path args" do
+  describe "PhoenixSpec.Controller with path args" do
     test "path args are decoded and passed as atom-keyed map" do
       conn =
         dispatch(:put, "/users/:id", %{"name" => "Bob", "email" => "bob@example.com"}, %{
