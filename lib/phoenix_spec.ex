@@ -72,11 +72,25 @@ defmodule PhoenixSpec do
   end
 
   defp add_responses(endpoint, controller, responses) do
-    Enum.reduce(responses, endpoint, fn {status, body_type}, ep ->
-      # FIXME: Also add response headers
+    Enum.reduce(responses, endpoint, fn {status, headers_type, body_type}, ep ->
       Spectral.OpenAPI.response(status, status_code_description(status))
       |> Spectral.OpenAPI.response_with_body(controller, body_type)
+      |> add_response_headers(controller, headers_type)
       |> then(&Spectral.OpenAPI.add_response(ep, &1))
+    end)
+  end
+
+  defp add_response_headers(response, controller, headers_type) do
+    type_info = controller.__spectra_type_info__()
+    sp_map(fields: fields) = resolve_type_ref(headers_type, type_info)
+
+    Enum.reduce(fields, response, fn field, acc ->
+      literal_map_field(kind: kind, binary_name: binary_name, val_type: val_type) = field
+
+      Spectral.OpenAPI.response_with_header(acc, binary_name, controller, %{
+        required: kind == :exact,
+        schema: val_type
+      })
     end)
   end
 
@@ -97,9 +111,9 @@ defmodule PhoenixSpec do
     extract_single_response(other)
   end
 
-  defp extract_single_response(sp_tuple(fields: [status_type, _headers_type, body_type])) do
+  defp extract_single_response(sp_tuple(fields: [status_type, headers_type, body_type])) do
     sp_literal(value: status) = status_type
-    [{status, body_type}]
+    [{status, headers_type, body_type}]
   end
 
   defp add_header_parameters(endpoint, controller, headers_type) do

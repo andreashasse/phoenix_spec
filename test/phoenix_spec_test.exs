@@ -73,5 +73,21 @@ defmodule PhoenixSpecTest do
       assert header_param != nil
       assert header_param["required"] == false
     end
+
+    test "required response header appears in response spec" do
+      spec = generate_header_spec()
+
+      headers = spec["paths"]["/items/count"]["get"]["responses"]["200"]["headers"]
+      assert headers != nil
+      assert Map.has_key?(headers, "x-count")
+      assert headers["x-count"]["required"] == true
+    end
+
+    test "response with no declared headers has no headers in spec" do
+      spec = generate_header_spec()
+
+      response = spec["paths"]["/items/{id}"]["get"]["responses"]["200"]
+      assert response["headers"] == nil or response["headers"] == %{}
+    end
   end
 end
