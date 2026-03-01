@@ -37,6 +37,7 @@ defmodule PhoenixSpec.Controller do
   6. On validation failure, returns a 400 response
   """
 
+  require Logger
   require Record
   Record.defrecordp(:sp_function_spec, args: [], return: nil)
   Record.defrecordp(:sp_literal, value: nil, binary_value: nil, meta: %{})
@@ -171,7 +172,9 @@ defmodule PhoenixSpec.Controller do
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.send_resp(status, encoded)
 
-      {:error, _errors} ->
+      {:error, errors} ->
+        Logger.error("PhoenixSpec: response encoding failed for #{inspect(controller)}.#{action}/3: #{inspect(errors)}")
+
         conn
         |> Plug.Conn.put_resp_content_type("application/json")
         |> Plug.Conn.send_resp(
