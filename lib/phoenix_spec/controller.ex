@@ -221,8 +221,8 @@ defmodule PhoenixSpec.Controller do
   defp encode_response_body(_type_info, sp_literal(value: nil), nil), do: {:ok, ""}
 
   defp encode_response_body(type_info, body_type, body) do
-    case :spectra.encode(:json, type_info, body_type, body) do
-      {:ok, encoded} -> {:ok, IO.iodata_to_binary(encoded)}
+    case Spectral.encode(body, type_info, body_type, :json, [:pre_encoded]) do
+      {:ok, term} -> {:ok, Phoenix.json_library().encode!(term)}
       {:error, _} = err -> err
     end
   end
