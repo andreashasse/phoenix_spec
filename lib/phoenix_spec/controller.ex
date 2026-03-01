@@ -41,10 +41,8 @@ defmodule PhoenixSpec.Controller do
   Record.defrecordp(:sp_function_spec, args: [], return: nil)
   Record.defrecordp(:sp_literal, value: nil, binary_value: nil, meta: %{})
   Record.defrecordp(:sp_map, fields: [], struct_name: nil, meta: %{})
-  Record.defrecordp(:sp_remote_type, type: nil, meta: %{})
   Record.defrecordp(:sp_tuple, fields: [], meta: %{})
   Record.defrecordp(:sp_union, types: [], meta: %{})
-  Record.defrecordp(:sp_user_type_ref, type_name: nil, variables: [], meta: %{})
   Record.defrecordp(:literal_map_field, kind: nil, name: nil, binary_name: nil, val_type: nil)
 
   defmacro __using__(opts) do
@@ -116,7 +114,7 @@ defmodule PhoenixSpec.Controller do
   defp decode_path_args(conn, controller, action) do
     {path_args_type, _headers_type, _body_type} = lookup_action_types(controller, action)
     type_info = controller.__spectra_type_info__()
-    sp_map(fields: fields) = resolve_type_ref(path_args_type, type_info)
+    sp_map(fields: fields) = PhoenixSpec.resolve_type_ref(path_args_type, type_info)
     raw_path_params = conn.path_params
 
     Enum.reduce_while(fields, {:ok, %{}}, fn field, {:ok, acc} ->
@@ -140,7 +138,7 @@ defmodule PhoenixSpec.Controller do
   defp decode_request_headers(conn, controller, action) do
     {_path_args_type, headers_type, _body_type} = lookup_action_types(controller, action)
     type_info = controller.__spectra_type_info__()
-    sp_map(fields: fields) = resolve_type_ref(headers_type, type_info)
+    sp_map(fields: fields) = PhoenixSpec.resolve_type_ref(headers_type, type_info)
     raw_headers = conn.req_headers
 
     Enum.reduce_while(fields, {:ok, %{}}, fn field, {:ok, acc} ->
@@ -162,13 +160,6 @@ defmodule PhoenixSpec.Controller do
       end
     end)
   end
-
-  defp resolve_type_ref(sp_user_type_ref(type_name: name), type_info) do
-    {:ok, resolved} = Spectral.TypeInfo.find_type(type_info, name, 0)
-    resolve_type_ref(resolved, type_info)
-  end
-
-  defp resolve_type_ref(type, _type_info), do: type
 
   defp send_typed_response(conn, controller, action, status, response_headers, response_body) do
     type_info = controller.__spectra_type_info__()
@@ -229,7 +220,7 @@ defmodule PhoenixSpec.Controller do
 
   defp encode_response_headers(conn, type_info, action, status, response_headers) do
     headers_type = lookup_response_headers_type(type_info, action, status)
-    sp_map(fields: fields) = resolve_type_ref(headers_type, type_info)
+    sp_map(fields: fields) = PhoenixSpec.resolve_type_ref(headers_type, type_info)
 
     Enum.reduce(fields, conn, fn field, acc ->
       literal_map_field(kind: kind, name: name, binary_name: binary_name, val_type: val_type) =

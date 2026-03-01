@@ -120,12 +120,12 @@ defmodule PhoenixSpec do
     end)
   end
 
-  defp resolve_type_ref(sp_user_type_ref(type_name: name), type_info) do
+  def resolve_type_ref(sp_user_type_ref(type_name: name), type_info) do
     {:ok, resolved} = Spectral.TypeInfo.find_type(type_info, name, 0)
-    resolved
+    resolve_type_ref(resolved, type_info)
   end
 
-  defp resolve_type_ref(type, _type_info), do: type
+  def resolve_type_ref(type, _type_info), do: type
 
   @path_param_regex ~r/:([a-zA-Z_][a-zA-Z0-9_]*)/
 
