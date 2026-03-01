@@ -147,7 +147,7 @@ defmodule PhoenixSpec.Controller do
 
       case List.keyfind(raw_headers, binary_name, 0) do
         {_key, raw_value} ->
-          case :spectra.decode(:binary_string, type_info, val_type, raw_value) do
+          case Spectral.decode(raw_value, type_info, val_type, :binary_string) do
             {:ok, decoded} -> {:cont, {:ok, Map.put(acc, name, decoded)}}
             {:error, errors} -> {:halt, {:error, errors}}
           end
