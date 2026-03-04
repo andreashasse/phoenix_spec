@@ -12,11 +12,13 @@ defmodule Example.UserController do
     "2" => %User{id: 2, name: "Hasse", email: "hasse@example.com"}
   }
 
+  spectral summary: "List users", description: "Returns all users"
   @spec index(%{}, read_headers(), nil) :: {200, %{}, [User.t()]}
   def index(_path_args, _headers, _body) do
     {200, %{}, Map.values(@users)}
   end
 
+  spectral summary: "Get user", description: "Returns a user by ID"
   @spec show(%{id: String.t()}, read_headers(), nil) ::
           {200, %{}, User.t()} | {404, %{}, Error.t()}
   def show(%{id: id}, _headers, _body) do
@@ -26,6 +28,7 @@ defmodule Example.UserController do
     end
   end
 
+  spectral summary: "Create user", description: "Creates a new user"
   @spec create(%{}, write_headers(), UserInput.t()) ::
           {201, %{}, User.t()} | {422, %{}, Error.t()}
   def create(_path_args, _headers, body) do
@@ -33,6 +36,7 @@ defmodule Example.UserController do
     {201, %{}, new_user}
   end
 
+  spectral summary: "Update user", description: "Updates an existing user by ID"
   @spec update(%{id: String.t()}, write_headers(), UserInput.t()) ::
           {200, %{}, User.t()} | {404, %{}, Error.t()} | {422, %{}, Error.t()}
   def update(%{id: id}, _headers, body) do
@@ -46,6 +50,7 @@ defmodule Example.UserController do
     end
   end
 
+  spectral summary: "Delete user", description: "Deletes a user by ID"
   @spec delete(%{id: String.t()}, write_headers(), nil) :: {204, %{}, nil}
   def delete(_path_args, _headers, _body) do
     {204, %{}, nil}
