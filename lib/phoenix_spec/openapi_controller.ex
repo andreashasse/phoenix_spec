@@ -61,10 +61,10 @@ defmodule PhoenixSpec.OpenAPIController do
               %{unquote_splicing(metadata_kv)}
             )
           else
-            {:ok, spec} =
+            {:ok, iodata} =
               PhoenixSpec.generate_openapi(unquote(router), %{unquote_splicing(metadata_kv)})
 
-            Phoenix.json_library().encode!(spec)
+            IO.iodata_to_binary(iodata)
           end
 
         conn
@@ -88,8 +88,8 @@ defmodule PhoenixSpec.OpenAPIController do
 
     case :persistent_term.get(key, :not_cached) do
       :not_cached ->
-        {:ok, spec} = PhoenixSpec.generate_openapi(router, metadata)
-        json = Phoenix.json_library().encode!(spec)
+        {:ok, iodata} = PhoenixSpec.generate_openapi(router, metadata)
+        json = IO.iodata_to_binary(iodata)
         :persistent_term.put(key, json)
         json
 

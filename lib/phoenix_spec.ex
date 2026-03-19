@@ -76,7 +76,7 @@ defmodule PhoenixSpec do
 
   ## Returns
 
-  - `{:ok, openapi_spec}` - Complete OpenAPI 3.0 specification as a map
+  - `{:ok, iodata}` - Complete OpenAPI 3.0 specification as JSON iodata
   - `{:error, errors}` - List of errors if generation fails
 
   ## Parameter descriptions via typed type aliases
@@ -93,15 +93,26 @@ defmodule PhoenixSpec do
   PhoenixSpec reads the type's metadata when building the spec and adds the
   `description` field to the parameter object in the OpenAPI output.
   """
-  @spec generate_openapi(module(), map()) :: {:ok, map()} | {:error, list()}
+  @spec generate_openapi(module(), map()) :: {:ok, iodata()} | {:error, list()}
   def generate_openapi(router, metadata) do
+    generate_openapi(router, metadata, [])
+  end
+
+  @spec generate_openapi(module(), map(), [:pre_encoded]) ::
+          {:ok, iodata() | map()} | {:error, list()}
+  def generate_openapi(router, metadata, options) do
     endpoints =
       router
       |> Phoenix.Router.routes()
       |> Enum.filter(&api_route?/1)
       |> Enum.map(&route_to_endpoint/1)
 
-    Spectral.OpenAPI.endpoints_to_openapi(metadata, endpoints)
+    result = :spectra_openapi.endpoints_to_openapi(metadata, endpoints, options)
+
+    case result do
+      {:ok, value} -> {:ok, value}
+      {:error, errors} -> {:error, errors}
+    end
   end
 
   defp api_route?(%{plug: plug}) do
