@@ -8,7 +8,17 @@ defmodule PhoenixSpec.MixProject do
       elixir: ">= 1.18.0",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
-      deps: deps()
+      deps: deps(),
+      description:
+        "FastAPI for Elixir/Phoenix — controller typespecs as the single source of truth for OpenAPI 3.1 generation and request/response validation.",
+      package: package()
+    ]
+  end
+
+  defp package do
+    [
+      licenses: ["Apache-2.0"],
+      links: %{"GitHub" => "https://github.com/andreashasse/phoenix_spec"}
     ]
   end
 
