@@ -1,4 +1,5 @@
 defmodule TestRouter do
+  @moduledoc false
   use Phoenix.Router
 
   get("/users", TestUserController, :index)

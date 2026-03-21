@@ -152,10 +152,7 @@ defmodule PhoenixSpec.Controller do
 
       case Map.fetch(raw_path_params, binary_name) do
         {:ok, raw_value} ->
-          case Spectral.decode(raw_value, type_info, val_type, :binary_string) do
-            {:ok, decoded} -> {:cont, {:ok, Map.put(acc, name, decoded)}}
-            {:error, errors} -> {:halt, {:error, errors}}
-          end
+          decode_value(raw_value, name, type_info, val_type, acc)
 
         :error ->
           raise "PhoenixSpec: path param #{inspect(binary_name)} declared in typespec for " <>
@@ -177,10 +174,7 @@ defmodule PhoenixSpec.Controller do
 
       case List.keyfind(raw_headers, binary_name, 0) do
         {_key, raw_value} ->
-          case Spectral.decode(raw_value, type_info, val_type, :binary_string) do
-            {:ok, decoded} -> {:cont, {:ok, Map.put(acc, name, decoded)}}
-            {:error, errors} -> {:halt, {:error, errors}}
-          end
+          decode_value(raw_value, name, type_info, val_type, acc)
 
         nil when kind == :exact ->
           {:halt, {:error, [%Spectral.Error{type: :missing_data, location: [name]}]}}
@@ -189,6 +183,13 @@ defmodule PhoenixSpec.Controller do
           {:cont, {:ok, acc}}
       end
     end)
+  end
+
+  defp decode_value(raw_value, name, type_info, val_type, acc) do
+    case Spectral.decode(raw_value, type_info, val_type, :binary_string) do
+      {:ok, decoded} -> {:cont, {:ok, Map.put(acc, name, decoded)}}
+      {:error, errors} -> {:halt, {:error, errors}}
+    end
   end
 
   defp send_typed_response(conn, controller, action, status, response_headers, response_body) do

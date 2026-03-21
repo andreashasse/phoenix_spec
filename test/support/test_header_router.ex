@@ -1,4 +1,5 @@
 defmodule TestHeaderRouter do
+  @moduledoc false
   use Phoenix.Router
 
   get("/items", TestHeaderController, :index)

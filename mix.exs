@@ -27,7 +27,9 @@ defmodule PhoenixSpec.MixProject do
     [
       {:phoenix, "~> 1.7"},
       {:spectral, "~> 0.8.0", override: true},
-      {:jason, "~> 1.0", only: :test}
+      {:jason, "~> 1.0", only: [:dev, :test]},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 end

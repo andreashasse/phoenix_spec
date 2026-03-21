@@ -1,4 +1,5 @@
 defmodule TestUser do
+  @moduledoc false
   use Spectral
 
   defstruct [:id, :name, :email]
@@ -13,6 +14,7 @@ defmodule TestUser do
 end
 
 defmodule TestUserInput do
+  @moduledoc false
   use Spectral
 
   defstruct [:name, :email]
@@ -26,6 +28,7 @@ defmodule TestUserInput do
 end
 
 defmodule TestError do
+  @moduledoc false
   use Spectral
 
   defstruct [:message]

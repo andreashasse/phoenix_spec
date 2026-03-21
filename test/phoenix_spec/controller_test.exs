@@ -57,7 +57,7 @@ defmodule PhoenixSpec.ControllerTest do
       body = Jason.decode!(conn.resp_body)
       assert body["error"] == "Bad Request"
       assert is_list(body["details"])
-      assert length(body["details"]) >= 1
+      assert body["details"] != []
       assert Enum.all?(body["details"], &is_map_key(&1, "type"))
       assert Enum.all?(body["details"], &is_map_key(&1, "location"))
     end

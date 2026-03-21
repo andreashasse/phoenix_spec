@@ -1,4 +1,5 @@
 defmodule TestHeaderController do
+  @moduledoc false
   use PhoenixSpec.Controller, formats: [:json]
 
   @type required_headers :: %{required(:"x-user-id") => String.t()}

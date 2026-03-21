@@ -1,4 +1,5 @@
 defmodule TestUserController do
+  @moduledoc false
   use PhoenixSpec.Controller, formats: [:json]
 
   spectral(description: "The user's unique identifier")
