@@ -121,12 +121,13 @@ defmodule PhoenixSpectral do
   end
 
   defp route_to_endpoint(%{verb: verb, path: path, plug: controller, plug_opts: action}) do
-    {path_args_type, headers_type, body_type, return_type} =
+    {path_args_type, query_params_type, headers_type, body_type, return_type} =
       extract_handler_type(controller, action)
 
-    Spectral.OpenAPI.endpoint(verb, phoenix_path_to_openapi_path(path), controller, action, 3)
+    Spectral.OpenAPI.endpoint(verb, phoenix_path_to_openapi_path(path), controller, action, 4)
     |> maybe_add_request_body(verb, controller, body_type)
     |> add_header_parameters(controller, headers_type)
+    |> add_query_parameters(controller, query_params_type)
     |> add_path_parameters(controller, path_args_type)
     |> add_responses(controller, extract_responses(return_type))
   end
@@ -165,10 +166,12 @@ defmodule PhoenixSpectral do
   defp extract_handler_type(controller, action) do
     type_info = controller.__spectra_type_info__()
 
-    {:ok, [sp_function_spec(args: [path_args, headers, body], return: return_type) | _]} =
-      Spectral.TypeInfo.find_function(type_info, action, 3)
+    {:ok,
+     [
+       sp_function_spec(args: [path_args, query_params, headers, body], return: return_type) | _
+     ]} = Spectral.TypeInfo.find_function(type_info, action, 4)
 
-    {path_args, headers, body, return_type}
+    {path_args, query_params, headers, body, return_type}
   end
 
   defp extract_responses(sp_union(types: types)) do
@@ -194,6 +197,24 @@ defmodule PhoenixSpectral do
       param_spec = %{
         name: binary_name,
         in: :header,
+        required: kind == :exact,
+        schema: val_type
+      }
+
+      Spectral.OpenAPI.with_parameter(ep, controller, param_spec)
+    end)
+  end
+
+  defp add_query_parameters(endpoint, controller, query_params_type) do
+    type_info = controller.__spectra_type_info__()
+    fields = map_fields(query_params_type, type_info)
+
+    Enum.reduce(fields, endpoint, fn field, ep ->
+      literal_map_field(kind: kind, binary_name: binary_name, val_type: val_type) = field
+
+      param_spec = %{
+        name: binary_name,
+        in: :query,
         required: kind == :exact,
         schema: val_type
       }

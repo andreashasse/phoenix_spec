@@ -3,16 +3,17 @@ defmodule PhoenixSpectral.ControllerTest do
 
   import Plug.Test
 
-  defp call(controller, action, method, path, body_params, path_params, req_headers) do
+  defp call(controller, action, method, path, body_params, path_params, query_params, req_headers) do
     conn(method, path, body_params)
     |> Map.put(:path_params, path_params)
+    |> Map.put(:query_params, query_params)
     |> Map.put(:req_headers, req_headers)
     |> Phoenix.Controller.put_format("json")
     |> Plug.Conn.put_private(:phoenix_action, action)
     |> controller.action([])
   end
 
-  defp dispatch(method, path, body_params, path_params \\ %{}, req_headers \\ []) do
+  defp dispatch(method, path, body_params, path_params \\ %{}, query_params \\ %{}, req_headers \\ []) do
     call(
       TestUserController,
       action_from_path(method, path),
@@ -20,12 +21,13 @@ defmodule PhoenixSpectral.ControllerTest do
       path,
       body_params,
       path_params,
+      query_params,
       req_headers
     )
   end
 
   defp dispatch_header(action, path_params, req_headers) do
-    call(TestHeaderController, action, :get, "/", nil, path_params, req_headers)
+    call(TestHeaderController, action, :get, "/", nil, path_params, %{}, req_headers)
   end
 
   defp action_from_path(:post, "/users"), do: :create
@@ -127,6 +129,7 @@ defmodule PhoenixSpectral.ControllerTest do
     defp dispatch_header_action(action, path_params \\ %{}) do
       conn(:get, "/", nil)
       |> Map.put(:path_params, path_params)
+      |> Map.put(:query_params, %{})
       |> Map.put(:req_headers, [])
       |> Phoenix.Controller.put_format("json")
       |> Plug.Conn.put_private(:phoenix_action, action)
@@ -168,6 +171,7 @@ defmodule PhoenixSpectral.ControllerTest do
       conn =
         conn(:get, "/", nil)
         |> Map.put(:path_params, %{"id" => raw_id})
+        |> Map.put(:query_params, %{})
         |> Map.put(:req_headers, [])
         |> Phoenix.Controller.put_format("json")
 
@@ -203,6 +207,52 @@ defmodule PhoenixSpectral.ControllerTest do
       assert conn.status == 200
       body = Jason.decode!(conn.resp_body)
       assert body["name"] == "Bob"
+    end
+  end
+
+  describe "PhoenixSpectral.Controller with query params" do
+    defp dispatch_query(action, query_params) do
+      call(TestQueryController, action, :get, "/", nil, %{}, query_params, [])
+    end
+
+    test "optional query params absent: action receives empty map" do
+      conn = dispatch_query(:index, %{})
+
+      assert conn.status == 200
+      body = Jason.decode!(conn.resp_body)
+      # page defaults to 1 when absent
+      assert hd(body)["id"] == 1
+    end
+
+    test "optional query params present: decoded and passed as atom-keyed map" do
+      conn = dispatch_query(:index, %{"page" => "3"})
+
+      assert conn.status == 200
+      body = Jason.decode!(conn.resp_body)
+      assert hd(body)["id"] == 3
+    end
+
+    test "returns 400 when a required query param is missing" do
+      conn = dispatch_query(:search, %{})
+
+      assert conn.status == 400
+      body = Jason.decode!(conn.resp_body)
+      assert body["error"] == "Bad Request"
+      assert [%{"type" => "missing_data", "location" => ["q"]}] = body["details"]
+    end
+
+    test "required query param present: decoded and passed as atom-keyed map" do
+      conn = dispatch_query(:search, %{"q" => "alice"})
+
+      assert conn.status == 200
+      body = Jason.decode!(conn.resp_body)
+      assert hd(body)["name"] == "alice"
+    end
+
+    test "returns 400 when a query param has wrong type" do
+      conn = dispatch_query(:index, %{"page" => "not-a-number"})
+
+      assert conn.status == 400
     end
   end
 end

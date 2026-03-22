@@ -2,8 +2,8 @@ defmodule PhoenixSpectral.Controller do
   @moduledoc """
   A Phoenix controller module that validates requests and responses using typespecs.
 
-  When you `use PhoenixSpectral.Controller`, your controller actions use a 3-arity
-  convention `(path_args, headers, body)` instead of the standard Phoenix
+  When you `use PhoenixSpectral.Controller`, your controller actions use a 4-arity
+  convention `(path_args, query_params, headers, body)` instead of the standard Phoenix
   `(conn, params)`. Request data is decoded and validated against your typespecs,
   and responses are encoded automatically.
 
@@ -12,14 +12,14 @@ defmodule PhoenixSpectral.Controller do
       defmodule MyAppWeb.UserController do
         use PhoenixSpectral.Controller
 
-        @spec show(%{id: String.t()}, %{}, nil) :: {200, %{}, User.t()}
-        def show(path_args, _headers, _body) do
+        @spec show(%{id: String.t()}, %{}, %{}, nil) :: {200, %{}, User.t()}
+        def show(path_args, _query_params, _headers, _body) do
           user = Repo.get!(User, path_args.id)
           {200, %{}, user}
         end
 
-        @spec create(%{}, %{}, UserInput.t()) :: {201, %{}, User.t()} | {422, %{}, Error.t()}
-        def create(_path_args, _headers, body) do
+        @spec create(%{}, %{}, %{}, UserInput.t()) :: {201, %{}, User.t()} | {422, %{}, Error.t()}
+        def create(_path_args, _query_params, _headers, body) do
           case Repo.insert(body) do
             {:ok, user} -> {201, %{}, user}
             {:error, changeset} -> {422, %{}, format_errors(changeset)}
@@ -29,9 +29,9 @@ defmodule PhoenixSpectral.Controller do
 
   ## How It Works
 
-  1. Extracts path params, headers, and body from `conn`
+  1. Extracts path params, query params, headers, and body from `conn`
   2. Decodes and validates them against the action's typespec via `Spectral.decode`
-  3. Calls your handler as `action(path_args, headers, decoded_body)`
+  3. Calls your handler as `action(path_args, query_params, headers, decoded_body)`
   4. Encodes the `{status, headers, body}` response via `Spectral.encode`
   5. Sends the response on `conn`
   6. On validation failure, returns a 400 response
@@ -98,14 +98,15 @@ defmodule PhoenixSpectral.Controller do
 
   def dispatch(conn, controller, action) do
     with {:ok, path_args} <- decode_path_args(conn, controller, action),
+         {:ok, query_params} <- decode_query_params(conn, controller, action),
          {:ok, headers} <- decode_request_headers(conn, controller, action),
          {:ok, body} <- decode_request_body(conn, controller, action) do
-      case apply(controller, action, [path_args, headers, body]) do
+      case apply(controller, action, [path_args, query_params, headers, body]) do
         {status, response_headers, response_body} when is_integer(status) ->
           send_typed_response(conn, controller, action, status, response_headers, response_body)
 
         other ->
-          raise "PhoenixSpectral action #{inspect(controller)}.#{action}/3 must return " <>
+          raise "PhoenixSpectral action #{inspect(controller)}.#{action}/4 must return " <>
                   "{status, headers, body}, got: #{inspect(other)}"
       end
     else
@@ -120,7 +121,9 @@ defmodule PhoenixSpectral.Controller do
   end
 
   defp decode_request_body(conn, controller, action) do
-    {_path_args_type, _headers_type, body_type} = lookup_action_types(controller, action)
+    {_path_args_type, _query_params_type, _headers_type, body_type} =
+      lookup_action_types(controller, action)
+
     type_info = controller.__spectra_type_info__()
 
     raw_body =
@@ -135,14 +138,18 @@ defmodule PhoenixSpectral.Controller do
   defp lookup_action_types(controller, action) do
     type_info = controller.__spectra_type_info__()
 
-    {:ok, [sp_function_spec(args: [path_args_type, headers_type, body_type]) | _]} =
-      Spectral.TypeInfo.find_function(type_info, action, 3)
+    {:ok,
+     [
+       sp_function_spec(args: [path_args_type, query_params_type, headers_type, body_type]) | _
+     ]} = Spectral.TypeInfo.find_function(type_info, action, 4)
 
-    {path_args_type, headers_type, body_type}
+    {path_args_type, query_params_type, headers_type, body_type}
   end
 
   defp decode_path_args(conn, controller, action) do
-    {path_args_type, _headers_type, _body_type} = lookup_action_types(controller, action)
+    {path_args_type, _query_params_type, _headers_type, _body_type} =
+      lookup_action_types(controller, action)
+
     type_info = controller.__spectra_type_info__()
     fields = PhoenixSpectral.map_fields(path_args_type, type_info)
     raw_path_params = conn.path_params
@@ -156,14 +163,45 @@ defmodule PhoenixSpectral.Controller do
 
         :error ->
           raise "PhoenixSpectral: path param #{inspect(binary_name)} declared in typespec for " <>
-                  "#{inspect(controller)}.#{action}/3 is not present in conn.path_params. " <>
+                  "#{inspect(controller)}.#{action}/4 is not present in conn.path_params. " <>
                   "Does the router path match the typespec?"
       end
     end)
   end
 
+  defp decode_query_params(conn, controller, action) do
+    {_path_args_type, query_params_type, _headers_type, _body_type} =
+      lookup_action_types(controller, action)
+
+    type_info = controller.__spectra_type_info__()
+    fields = PhoenixSpectral.map_fields(query_params_type, type_info)
+
+    raw_query_params =
+      case conn.query_params do
+        %Plug.Conn.Unfetched{} -> %{}
+        params -> params
+      end
+
+    Enum.reduce_while(fields, {:ok, %{}}, fn field, {:ok, acc} ->
+      literal_map_field(kind: kind, name: name, binary_name: binary_name, val_type: val_type) =
+        field
+
+      case Map.fetch(raw_query_params, binary_name) do
+        {:ok, raw_value} ->
+          decode_value(raw_value, name, type_info, val_type, acc)
+
+        :error when kind == :exact ->
+          {:halt, {:error, [%Spectral.Error{type: :missing_data, location: [name]}]}}
+
+        :error ->
+          {:cont, {:ok, acc}}
+      end
+    end)
+  end
+
   defp decode_request_headers(conn, controller, action) do
-    {_path_args_type, headers_type, _body_type} = lookup_action_types(controller, action)
+    {_path_args_type, _query_params_type, headers_type, _body_type} =
+      lookup_action_types(controller, action)
     type_info = controller.__spectra_type_info__()
     fields = PhoenixSpectral.map_fields(headers_type, type_info)
     raw_headers = conn.req_headers
@@ -205,7 +243,7 @@ defmodule PhoenixSpectral.Controller do
 
       {:error, errors} ->
         Logger.error(
-          "PhoenixSpectral: response encoding failed for #{inspect(controller)}.#{action}/3: #{inspect(errors)}"
+          "PhoenixSpectral: response encoding failed for #{inspect(controller)}.#{action}/4: #{inspect(errors)}"
         )
 
         conn
@@ -219,7 +257,7 @@ defmodule PhoenixSpectral.Controller do
 
   defp find_return_tuple(type_info, action, status) do
     {:ok, [sp_function_spec(return: return_type) | _]} =
-      Spectral.TypeInfo.find_function(type_info, action, 3)
+      Spectral.TypeInfo.find_function(type_info, action, 4)
 
     tuples =
       case return_type do
@@ -268,7 +306,7 @@ defmodule PhoenixSpectral.Controller do
 
         :error when kind == :exact ->
           raise "PhoenixSpectral: required response header #{inspect(binary_name)} declared in " <>
-                  "typespec for #{action}/3 is missing from the response"
+                  "typespec for #{action}/4 is missing from the response"
 
         :error ->
           acc
