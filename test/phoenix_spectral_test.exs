@@ -249,6 +249,35 @@ defmodule PhoenixSpectralTest do
     end
   end
 
+  describe "generate_openapi/2 with 5-arity (conn) actions" do
+    defp generate_conn_spec do
+      {:ok, json} =
+        PhoenixSpectral.generate_openapi(TestConnRouter, %{title: "Test API", version: "1.0.0"})
+
+      Jason.decode!(json)
+    end
+
+    test "generates paths for 5-arity actions" do
+      spec = generate_conn_spec()
+      assert Map.has_key?(spec["paths"], "/users/{id}")
+      assert Map.has_key?(spec["paths"], "/download")
+    end
+
+    test "path parameters are extracted from the typed args (skipping conn)" do
+      spec = generate_conn_spec()
+      params = spec["paths"]["/users/{id}"]["get"]["parameters"]
+      id_param = Enum.find(params, &(&1["in"] == "path" && &1["name"] == "id"))
+      assert id_param != nil
+      assert id_param["required"] == true
+    end
+
+    test "response schema is extracted from the typed return (skipping conn)" do
+      spec = generate_conn_spec()
+      responses = spec["paths"]["/users/{id}"]["get"]["responses"]
+      assert Map.has_key?(responses, "200")
+    end
+  end
+
   describe "generate_openapi/2 with query parameters" do
     test "required query param appears as required in:query parameter" do
       spec = generate_query_spec()

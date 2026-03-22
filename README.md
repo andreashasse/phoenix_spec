@@ -145,6 +145,40 @@ end
 | `:openapi_url` | no | URL path for the JSON spec, used by Swagger UI (default: `"/openapi"`) |
 | `:cache` | no | Cache the generated JSON in `:persistent_term` (default: `false`) |
 
+## Accessing conn
+
+By default, actions use the 4-arity convention and have no direct access to `conn`. When you need `conn` — for `conn.assigns` (auth context from upstream plugs), `conn.remote_ip`, `conn.host`, `conn.method`, `conn.private`, or anything else on the connection — add it as the first argument and make the action 5-arity:
+
+```elixir
+@spec show(Plug.Conn.t(), %{id: integer()}, %{}, %{}, nil) ::
+        {200, %{}, MyApp.User.t()} | {404, %{}, MyApp.Error.t()}
+def show(conn, %{id: id}, _query, _headers, _body) do
+  current_user = conn.assigns.current_user
+  case MyApp.Users.get(id, current_user) do
+    {:ok, user} -> {200, %{}, user}
+    :not_found -> {404, %{}, %MyApp.Error{message: "Not found"}}
+  end
+end
+```
+
+PhoenixSpectral detects the 5-arity function automatically — no other configuration is needed. The OpenAPI spec is generated from the remaining 4 typed arguments, so documentation is unchanged.
+
+#### Streaming and raw responses
+
+A 5-arity action can return a `Plug.Conn` directly instead of `{status, headers, body}`. This enables `send_file/3`, `send_chunked/2`, and any other conn-based response mechanism:
+
+```elixir
+@spec download(Plug.Conn.t(), %{id: String.t()}, %{}, %{}, nil) :: {200, %{}, nil}
+def download(conn, %{id: id}, _query, _headers, _body) do
+  path = MyApp.Files.path_for(id)
+  conn
+  |> put_resp_content_type("application/octet-stream")
+  |> send_file(200, path)
+end
+```
+
+**When a conn is returned, PhoenixSpectral passes it through without schema validation.** The typespec still documents the endpoint for the OpenAPI spec, but the actual response is your responsibility.
+
 ## Request/Response Behavior
 
 - **Invalid requests** (type mismatch, missing required fields) return `400 Bad Request` with a JSON error body listing the validation errors
