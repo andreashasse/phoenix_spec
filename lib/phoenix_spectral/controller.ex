@@ -178,8 +178,12 @@ defmodule PhoenixSpectral.Controller do
 
     raw_query_params =
       case conn.query_params do
-        %Plug.Conn.Unfetched{} -> %{}
-        params -> params
+        %Plug.Conn.Unfetched{} ->
+          %{query_params: params} = Plug.Conn.fetch_query_params(conn)
+          params
+
+        params ->
+          params
       end
 
     Enum.reduce_while(fields, {:ok, %{}}, fn field, {:ok, acc} ->
