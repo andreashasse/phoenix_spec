@@ -15,6 +15,13 @@ defmodule PhoenixSpectralTest do
     Jason.decode!(json)
   end
 
+  defp generate_query_spec do
+    {:ok, json} =
+      PhoenixSpectral.generate_openapi(TestQueryRouter, %{title: "Test API", version: "1.0.0"})
+
+    Jason.decode!(json)
+  end
+
   describe "generate_openapi/2" do
     test "generates a valid OpenAPI spec" do
       spec = generate_spec()
@@ -239,6 +246,54 @@ defmodule PhoenixSpectralTest do
       refute Map.has_key?(spec["info"], "summary")
       refute Map.has_key?(spec["info"], "description")
       refute Map.has_key?(spec, "servers")
+    end
+  end
+
+  describe "generate_openapi/2 with query parameters" do
+    test "required query param appears as required in:query parameter" do
+      spec = generate_query_spec()
+
+      params = spec["paths"]["/users/search"]["get"]["parameters"]
+      q_param = Enum.find(params, &(&1["in"] == "query" && &1["name"] == "q"))
+      assert q_param != nil
+      assert q_param["required"] == true
+    end
+
+    test "optional query params appear as non-required in:query parameters" do
+      spec = generate_query_spec()
+
+      params = spec["paths"]["/users"]["get"]["parameters"]
+      page_param = Enum.find(params, &(&1["in"] == "query" && &1["name"] == "page"))
+      per_page_param = Enum.find(params, &(&1["in"] == "query" && &1["name"] == "per_page"))
+      assert page_param != nil
+      assert page_param["required"] == false
+      assert per_page_param != nil
+      assert per_page_param["required"] == false
+    end
+
+    test "query param with spectral description gets description in spec" do
+      spec = generate_query_spec()
+
+      params = spec["paths"]["/users/search"]["get"]["parameters"]
+      q_param = Enum.find(params, &(&1["in"] == "query" && &1["name"] == "q"))
+      assert q_param["description"] == "Search query string"
+    end
+
+    test "query param with plain type has no description in spec" do
+      spec = generate_query_spec()
+
+      params = spec["paths"]["/users"]["get"]["parameters"]
+      page_param = Enum.find(params, &(&1["in"] == "query" && &1["name"] == "page"))
+      refute Map.has_key?(page_param, "description")
+    end
+
+    test "action with no query params has no in:query parameters" do
+      spec = generate_spec()
+
+      # index action on TestUserController uses %{} for query params
+      params = spec["paths"]["/users"]["get"]["parameters"] || []
+      query_params = Enum.filter(params, &(&1["in"] == "query"))
+      assert query_params == []
     end
   end
 end
