@@ -217,6 +217,44 @@ defmodule PhoenixSpectral.ControllerTest do
     end
   end
 
+  describe "PhoenixSpectral.Controller with conn as first argument (5-arity)" do
+    defp dispatch_conn(action, path_params, assigns \\ %{}) do
+      conn(:get, "/", nil)
+      |> Map.put(:path_params, path_params)
+      |> Map.put(:query_params, %{})
+      |> Map.put(:req_headers, [])
+      |> Map.update!(:assigns, &Map.merge(&1, assigns))
+      |> Phoenix.Controller.put_format("json")
+      |> Plug.Conn.put_private(:phoenix_action, action)
+      |> TestConnController.action([])
+    end
+
+    test "conn is passed as first arg and conn.assigns is accessible" do
+      conn = dispatch_conn(:show_with_assigns, %{"id" => "5"}, %{current_user: "alice"})
+
+      assert conn.status == 200
+      body = Jason.decode!(conn.resp_body)
+      assert body["name"] == "alice"
+      assert body["id"] == 5
+    end
+
+    test "conn.assigns defaults when assign is absent" do
+      conn = dispatch_conn(:show_with_assigns, %{"id" => "7"})
+
+      assert conn.status == 200
+      body = Jason.decode!(conn.resp_body)
+      assert body["name"] == "unknown"
+    end
+
+    test "returning conn directly bypasses typed response and passes conn through" do
+      conn = dispatch_conn(:download, %{})
+
+      assert conn.status == 200
+      assert conn.resp_body == "file content"
+      assert {"content-type", "text/plain; charset=utf-8"} in conn.resp_headers
+    end
+  end
+
   describe "PhoenixSpectral.Controller with query params" do
     defp dispatch_query(action, query_params) do
       call(TestQueryController, action, :get, "/", nil, %{}, query_params, [])

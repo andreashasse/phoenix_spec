@@ -27,11 +27,29 @@ defmodule PhoenixSpectral.Controller do
         end
       end
 
+  ## Accessing conn (5-arity)
+
+  When you need `conn` — for `conn.assigns`, `conn.remote_ip`, `conn.method`, etc. — add
+  it as the first argument to make the action 5-arity. PhoenixSpectral detects this
+  automatically and passes the conn through:
+
+      @spec show(Plug.Conn.t(), %{id: String.t()}, %{}, %{}, nil) :: {200, %{}, User.t()}
+      def show(conn, %{id: id}, _query, _headers, _body) do
+        current_user = conn.assigns.current_user
+        {200, %{}, Repo.get_for!(User, id, current_user)}
+      end
+
+  A 5-arity action may also return `conn` directly for streaming, file sends, or any
+  other response that cannot be expressed as `{status, headers, body}`. In that case,
+  PhoenixSpectral passes the conn through without schema validation — the typespec still
+  documents the endpoint, but the response is the caller's responsibility.
+
   ## How It Works
 
   1. Extracts path params, query params, headers, and body from `conn`
   2. Decodes and validates them against the action's typespec via `Spectral.decode`
   3. Calls your handler as `action(path_args, query_params, headers, decoded_body)`
+     (or `action(conn, path_args, query_params, headers, decoded_body)` if 5-arity)
   4. Encodes the `{status, headers, body}` response via `Spectral.encode`
   5. Sends the response on `conn`
   6. On validation failure, returns a 400 response
@@ -101,13 +119,21 @@ defmodule PhoenixSpectral.Controller do
          {:ok, query_params} <- decode_query_params(conn, controller, action),
          {:ok, headers} <- decode_request_headers(conn, controller, action),
          {:ok, body} <- decode_request_body(conn, controller, action) do
-      case apply(controller, action, [path_args, query_params, headers, body]) do
+      args =
+        if function_exported?(controller, action, 5),
+          do: [conn, path_args, query_params, headers, body],
+          else: [path_args, query_params, headers, body]
+
+      case apply(controller, action, args) do
+        %Plug.Conn{} = returned_conn ->
+          returned_conn
+
         {status, response_headers, response_body} when is_integer(status) ->
           send_typed_response(conn, controller, action, status, response_headers, response_body)
 
         other ->
-          raise "PhoenixSpectral action #{inspect(controller)}.#{action}/4 must return " <>
-                  "{status, headers, body}, got: #{inspect(other)}"
+          raise "PhoenixSpectral action #{inspect(controller)}.#{action} must return " <>
+                  "{status, headers, body} or Plug.Conn, got: #{inspect(other)}"
       end
     else
       {:error, errors} ->
@@ -138,12 +164,25 @@ defmodule PhoenixSpectral.Controller do
   defp lookup_action_types(controller, action) do
     type_info = controller.__spectra_type_info__()
 
-    {:ok,
-     [
-       sp_function_spec(args: [path_args_type, query_params_type, headers_type, body_type]) | _
-     ]} = Spectral.TypeInfo.find_function(type_info, action, 4)
+    case Spectral.TypeInfo.find_function(type_info, action, 5) do
+      {:ok,
+       [
+         sp_function_spec(
+           args: [_conn_type, path_args_type, query_params_type, headers_type, body_type]
+         )
+         | _
+       ]} ->
+        {path_args_type, query_params_type, headers_type, body_type}
 
-    {path_args_type, query_params_type, headers_type, body_type}
+      _ ->
+        {:ok,
+         [
+           sp_function_spec(args: [path_args_type, query_params_type, headers_type, body_type])
+           | _
+         ]} = Spectral.TypeInfo.find_function(type_info, action, 4)
+
+        {path_args_type, query_params_type, headers_type, body_type}
+    end
   end
 
   defp decode_path_args(conn, controller, action) do
@@ -261,8 +300,14 @@ defmodule PhoenixSpectral.Controller do
   end
 
   defp find_return_tuple(type_info, action, status) do
+    arity =
+      case Spectral.TypeInfo.find_function(type_info, action, 5) do
+        {:ok, _} -> 5
+        _ -> 4
+      end
+
     {:ok, [sp_function_spec(return: return_type) | _]} =
-      Spectral.TypeInfo.find_function(type_info, action, 4)
+      Spectral.TypeInfo.find_function(type_info, action, arity)
 
     tuples =
       case return_type do
