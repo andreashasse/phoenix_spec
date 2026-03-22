@@ -9,6 +9,9 @@ defmodule TestConnController do
     {200, %{}, %TestUser{id: String.to_integer(id), name: current_user, email: "#{current_user}@example.com"}}
   end
 
+  # The typespec declares the API contract for OpenAPI generation.
+  # The implementation returns conn directly, demonstrating the raw-response
+  # escape hatch — schema validation is intentionally bypassed.
   @spec download(Plug.Conn.t(), %{}, %{}, %{}, nil) :: {200, %{}, nil}
   def download(conn, _path_args, _query, _headers, _body) do
     conn

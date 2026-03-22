@@ -119,17 +119,19 @@ defmodule PhoenixSpectral.Controller do
          {:ok, query_params} <- decode_query_params(conn, controller, action),
          {:ok, headers} <- decode_request_headers(conn, controller, action),
          {:ok, body} <- decode_request_body(conn, controller, action) do
+      arity = if function_exported?(controller, action, 5), do: 5, else: 4
+
       args =
-        if function_exported?(controller, action, 5),
+        if arity == 5,
           do: [conn, path_args, query_params, headers, body],
           else: [path_args, query_params, headers, body]
 
       case apply(controller, action, args) do
-        %Plug.Conn{} = returned_conn ->
+        %Plug.Conn{} = returned_conn when arity == 5 ->
           returned_conn
 
         {status, response_headers, response_body} when is_integer(status) ->
-          send_typed_response(conn, controller, action, status, response_headers, response_body)
+          send_typed_response(conn, controller, action, arity, status, response_headers, response_body)
 
         other ->
           raise "PhoenixSpectral action #{inspect(controller)}.#{action} must return " <>
@@ -274,10 +276,10 @@ defmodule PhoenixSpectral.Controller do
     end
   end
 
-  defp send_typed_response(conn, controller, action, status, response_headers, response_body) do
+  defp send_typed_response(conn, controller, action, arity, status, response_headers, response_body) do
     type_info = controller.__spectra_type_info__()
-    conn = encode_response_headers(conn, type_info, action, status, response_headers)
-    body_type = lookup_response_body_type(type_info, action, status)
+    conn = encode_response_headers(conn, type_info, action, arity, status, response_headers)
+    body_type = lookup_response_body_type(type_info, action, arity, status)
 
     case encode_response_body(type_info, body_type, response_body) do
       {:ok, encoded} ->
@@ -299,13 +301,7 @@ defmodule PhoenixSpectral.Controller do
     end
   end
 
-  defp find_return_tuple(type_info, action, status) do
-    arity =
-      case Spectral.TypeInfo.find_function(type_info, action, 5) do
-        {:ok, _} -> 5
-        _ -> 4
-      end
-
+  defp find_return_tuple(type_info, action, arity, status) do
     {:ok, [sp_function_spec(return: return_type) | _]} =
       Spectral.TypeInfo.find_function(type_info, action, arity)
 
@@ -318,16 +314,16 @@ defmodule PhoenixSpectral.Controller do
     Enum.find(tuples, fn sp_tuple(fields: [sp_literal(value: s), _, _]) -> s == status end)
   end
 
-  defp lookup_response_body_type(type_info, action, status) do
+  defp lookup_response_body_type(type_info, action, arity, status) do
     sp_tuple(fields: [_status_type, _headers_type, body_type]) =
-      find_return_tuple(type_info, action, status)
+      find_return_tuple(type_info, action, arity, status)
 
     body_type
   end
 
-  defp lookup_response_headers_type(type_info, action, status) do
+  defp lookup_response_headers_type(type_info, action, arity, status) do
     sp_tuple(fields: [_status_type, headers_type, _body_type]) =
-      find_return_tuple(type_info, action, status)
+      find_return_tuple(type_info, action, arity, status)
 
     headers_type
   end
@@ -341,8 +337,8 @@ defmodule PhoenixSpectral.Controller do
     end
   end
 
-  defp encode_response_headers(conn, type_info, action, status, response_headers) do
-    headers_type = lookup_response_headers_type(type_info, action, status)
+  defp encode_response_headers(conn, type_info, action, arity, status, response_headers) do
+    headers_type = lookup_response_headers_type(type_info, action, arity, status)
     fields = PhoenixSpectral.map_fields(headers_type, type_info)
 
     Enum.reduce(fields, conn, fn field, acc ->

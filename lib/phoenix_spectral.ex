@@ -121,10 +121,8 @@ defmodule PhoenixSpectral do
   end
 
   defp route_to_endpoint(%{verb: verb, path: path, plug: controller, plug_opts: action}) do
-    {path_args_type, query_params_type, headers_type, body_type, return_type} =
+    {path_args_type, query_params_type, headers_type, body_type, return_type, arity} =
       extract_handler_type(controller, action)
-
-    arity = if function_exported?(controller, action, 5), do: 5, else: 4
 
     Spectral.OpenAPI.endpoint(verb, phoenix_path_to_openapi_path(path), controller, action, arity)
     |> maybe_add_request_body(verb, controller, body_type)
@@ -177,7 +175,7 @@ defmodule PhoenixSpectral do
          )
          | _
        ]} ->
-        {path_args, query_params, headers, body, return_type}
+        {path_args, query_params, headers, body, return_type, 5}
 
       _ ->
         {:ok,
@@ -186,7 +184,7 @@ defmodule PhoenixSpectral do
            | _
          ]} = Spectral.TypeInfo.find_function(type_info, action, 4)
 
-        {path_args, query_params, headers, body, return_type}
+        {path_args, query_params, headers, body, return_type, 4}
     end
   end
 
