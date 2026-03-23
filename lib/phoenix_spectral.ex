@@ -124,7 +124,7 @@ defmodule PhoenixSpectral do
     {path_args_type, query_params_type, headers_type, body_type, return_type} =
       extract_handler_type(controller, action)
 
-    Spectral.OpenAPI.endpoint(verb, phoenix_path_to_openapi_path(path), controller, action, 4)
+    Spectral.OpenAPI.endpoint(verb, phoenix_path_to_openapi_path(path), controller, action, 5)
     |> maybe_add_request_body(verb, controller, body_type)
     |> add_header_parameters(controller, headers_type)
     |> add_query_parameters(controller, query_params_type)
@@ -168,8 +168,12 @@ defmodule PhoenixSpectral do
 
     {:ok,
      [
-       sp_function_spec(args: [path_args, query_params, headers, body], return: return_type) | _
-     ]} = Spectral.TypeInfo.find_function(type_info, action, 4)
+       sp_function_spec(
+         args: [_conn_type, path_args, query_params, headers, body],
+         return: return_type
+       )
+       | _
+     ]} = Spectral.TypeInfo.find_function(type_info, action, 5)
 
     {path_args, query_params, headers, body, return_type}
   end

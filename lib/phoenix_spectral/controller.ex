@@ -2,9 +2,9 @@ defmodule PhoenixSpectral.Controller do
   @moduledoc """
   A Phoenix controller module that validates requests and responses using typespecs.
 
-  When you `use PhoenixSpectral.Controller`, your controller actions use a 4-arity
-  convention `(path_args, query_params, headers, body)` instead of the standard Phoenix
-  `(conn, params)`. Request data is decoded and validated against your typespecs,
+  When you `use PhoenixSpectral.Controller`, your controller actions use the convention
+  `(conn, path_args, query_params, headers, body)` instead of the standard
+  Phoenix `(conn, params)`. Request data is decoded and validated against your typespecs,
   and responses are encoded automatically.
 
   ## Usage
@@ -12,14 +12,14 @@ defmodule PhoenixSpectral.Controller do
       defmodule MyAppWeb.UserController do
         use PhoenixSpectral.Controller
 
-        @spec show(%{id: String.t()}, %{}, %{}, nil) :: {200, %{}, User.t()}
-        def show(path_args, _query_params, _headers, _body) do
+        @spec show(Plug.Conn.t(), %{id: String.t()}, %{}, %{}, nil) :: {200, %{}, User.t()}
+        def show(_conn, path_args, _query_params, _headers, _body) do
           user = Repo.get!(User, path_args.id)
           {200, %{}, user}
         end
 
-        @spec create(%{}, %{}, %{}, UserInput.t()) :: {201, %{}, User.t()} | {422, %{}, Error.t()}
-        def create(_path_args, _query_params, _headers, body) do
+        @spec create(Plug.Conn.t(), %{}, %{}, %{}, UserInput.t()) :: {201, %{}, User.t()} | {422, %{}, Error.t()}
+        def create(_conn, _path_args, _query_params, _headers, body) do
           case Repo.insert(body) do
             {:ok, user} -> {201, %{}, user}
             {:error, changeset} -> {422, %{}, format_errors(changeset)}
@@ -27,11 +27,27 @@ defmodule PhoenixSpectral.Controller do
         end
       end
 
+  ## Using conn
+
+  `conn` is always passed as the first argument. Use it for out-of-band context —
+  `conn.assigns` (auth from upstream plugs), `conn.remote_ip`, `conn.host`,
+  `conn.method`, `conn.private`, etc.
+
+  Do not use `conn` to access data that is already decoded and validated by the
+  framework: use `path_args`, `query_params`, `headers`, and `body` instead.
+  Reading from `conn.path_params`, `conn.query_params`, `conn.req_headers`, or
+  `conn.body_params` directly bypasses type validation.
+
+  An action may also return `conn` directly for streaming, file sends, or any
+  other response that cannot be expressed as `{status, headers, body}`. In that case,
+  PhoenixSpectral passes the conn through without schema validation — the typespec still
+  documents the endpoint, but the response is the caller's responsibility.
+
   ## How It Works
 
   1. Extracts path params, query params, headers, and body from `conn`
   2. Decodes and validates them against the action's typespec via `Spectral.decode`
-  3. Calls your handler as `action(path_args, query_params, headers, decoded_body)`
+  3. Calls your handler as `action(conn, path_args, query_params, headers, decoded_body)`
   4. Encodes the `{status, headers, body}` response via `Spectral.encode`
   5. Sends the response on `conn`
   6. On validation failure, returns a 400 response
@@ -101,13 +117,23 @@ defmodule PhoenixSpectral.Controller do
          {:ok, query_params} <- decode_query_params(conn, controller, action),
          {:ok, headers} <- decode_request_headers(conn, controller, action),
          {:ok, body} <- decode_request_body(conn, controller, action) do
-      case apply(controller, action, [path_args, query_params, headers, body]) do
+      case apply(controller, action, [conn, path_args, query_params, headers, body]) do
+        %Plug.Conn{} = returned_conn ->
+          returned_conn
+
         {status, response_headers, response_body} when is_integer(status) ->
-          send_typed_response(conn, controller, action, status, response_headers, response_body)
+          send_typed_response(
+            conn,
+            controller,
+            action,
+            status,
+            response_headers,
+            response_body
+          )
 
         other ->
-          raise "PhoenixSpectral action #{inspect(controller)}.#{action}/4 must return " <>
-                  "{status, headers, body}, got: #{inspect(other)}"
+          raise "PhoenixSpectral action #{inspect(controller)}.#{action} must return " <>
+                  "{status, headers, body} or Plug.Conn, got: #{inspect(other)}"
       end
     else
       {:error, errors} ->
@@ -129,6 +155,7 @@ defmodule PhoenixSpectral.Controller do
     raw_body =
       case conn.body_params do
         %Plug.Conn.Unfetched{} -> nil
+        params when map_size(params) == 0 -> nil
         params -> params
       end
 
@@ -140,8 +167,11 @@ defmodule PhoenixSpectral.Controller do
 
     {:ok,
      [
-       sp_function_spec(args: [path_args_type, query_params_type, headers_type, body_type]) | _
-     ]} = Spectral.TypeInfo.find_function(type_info, action, 4)
+       sp_function_spec(
+         args: [_conn_type, path_args_type, query_params_type, headers_type, body_type]
+       )
+       | _
+     ]} = Spectral.TypeInfo.find_function(type_info, action, 5)
 
     {path_args_type, query_params_type, headers_type, body_type}
   end
@@ -235,7 +265,14 @@ defmodule PhoenixSpectral.Controller do
     end
   end
 
-  defp send_typed_response(conn, controller, action, status, response_headers, response_body) do
+  defp send_typed_response(
+         conn,
+         controller,
+         action,
+         status,
+         response_headers,
+         response_body
+       ) do
     type_info = controller.__spectra_type_info__()
     conn = encode_response_headers(conn, type_info, action, status, response_headers)
     body_type = lookup_response_body_type(type_info, action, status)
@@ -262,7 +299,7 @@ defmodule PhoenixSpectral.Controller do
 
   defp find_return_tuple(type_info, action, status) do
     {:ok, [sp_function_spec(return: return_type) | _]} =
-      Spectral.TypeInfo.find_function(type_info, action, 4)
+      Spectral.TypeInfo.find_function(type_info, action, 5)
 
     tuples =
       case return_type do

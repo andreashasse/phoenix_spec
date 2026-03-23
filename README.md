@@ -46,11 +46,15 @@ end
 
 ### Step 2: Create a typed controller
 
-`use PhoenixSpectral.Controller` replaces the standard Phoenix `action(conn, params)` convention with a 3-arity `action(path_args, headers, body)` convention:
+`use PhoenixSpectral.Controller` replaces the standard Phoenix `action(conn, params)` convention with `action(conn, path_args, query_params, headers, body)`:
 
+- **`conn`** — the Plug connection, for out-of-band context (`conn.assigns`, `conn.remote_ip`, etc.)
 - **`path_args`** — map of path parameters declared in the router (e.g. `%{id: 42}`), decoded from strings to the types declared in the spec
+- **`query_params`** — map of query string parameters, decoded to typed values; required keys use atom syntax (`key: type`), optional keys use arrow syntax (`optional(key) => type`)
 - **`headers`** — map of request headers, decoded from binary strings to typed values; required keys use atom syntax (`key: type`), optional keys use arrow syntax (`optional(key) => type`)
 - **`body`** — decoded and validated request body, or `nil` for requests without a body
+
+> **Note:** Use `conn` only for context that isn't already captured in the typed arguments — primarily `conn.assigns` (auth data from upstream plugs), `conn.remote_ip`, `conn.host`, or `conn.method`. Do not read `conn.path_params`, `conn.query_params`, `conn.req_headers`, or `conn.body_params` directly; use the decoded and validated arguments instead.
 
 Actions return `{status_code, response_headers, response_body}`. Union return types produce multiple OpenAPI response entries.
 
@@ -61,10 +65,10 @@ defmodule MyAppWeb.UserController do
   use PhoenixSpectral.Controller, formats: [:json]
 
   spectral(summary: "Get user", description: "Returns a user by ID")
-  @spec show(%{id: integer()}, %{}, nil) ::
+  @spec show(Plug.Conn.t(), %{id: integer()}, %{}, %{}, nil) ::
           {200, %{}, MyApp.User.t()}
           | {404, %{}, MyApp.Error.t()}
-  def show(%{id: id}, _headers, nil) do
+  def show(_conn, %{id: id}, _query, _headers, _body) do
     case MyApp.Users.get(id) do
       {:ok, user} -> {200, %{}, user}
       :not_found -> {404, %{}, %MyApp.Error{message: "User not found"}}
@@ -72,8 +76,8 @@ defmodule MyAppWeb.UserController do
   end
 
   spectral(summary: "Create user")
-  @spec create(%{}, %{}, MyApp.User.t()) :: {201, %{}, MyApp.User.t()}
-  def create(_path_args, _headers, body) do
+  @spec create(Plug.Conn.t(), %{}, %{}, %{}, MyApp.User.t()) :: {201, %{}, MyApp.User.t()}
+  def create(_conn, _path_args, _query, _headers, body) do
     {201, %{}, MyApp.Users.insert!(body)}
   end
 end
@@ -87,10 +91,10 @@ To add a description to a path or header parameter in the OpenAPI output, define
 spectral(description: "The user's unique identifier")
 @type user_id :: integer()
 
-@spec show(%{id: user_id()}, %{}, nil) ::
+@spec show(Plug.Conn.t(), %{id: user_id()}, %{}, %{}, nil) ::
         {200, %{}, MyApp.User.t()}
         | {404, %{}, MyApp.Error.t()}
-def show(%{id: id}, _headers, nil), do: ...
+def show(_conn, %{id: id}, _query, _headers, _body), do: ...
 ```
 
 #### Typed response headers
@@ -98,9 +102,9 @@ def show(%{id: id}, _headers, nil), do: ...
 Response headers are declared in the return type map:
 
 ```elixir
-@spec show(%{id: integer()}, %{}, nil) ::
+@spec show(Plug.Conn.t(), %{id: integer()}, %{}, %{}, nil) ::
         {200, %{"x-request-id": String.t()}, MyApp.User.t()}
-def show(%{id: id}, _headers, nil) do
+def show(_conn, %{id: id}, _query, _headers, _body) do
   {200, %{"x-request-id": "abc123"}, MyApp.Users.get!(id)}
 end
 ```
@@ -145,6 +149,22 @@ end
 | `:openapi_url` | no | URL path for the JSON spec, used by Swagger UI (default: `"/openapi"`) |
 | `:cache` | no | Cache the generated JSON in `:persistent_term` (default: `false`) |
 
+## Streaming and raw responses
+
+An action can return a `Plug.Conn` directly instead of `{status, headers, body}`. This enables `send_file/3`, `send_chunked/2`, and any other conn-based response mechanism:
+
+```elixir
+@spec download(Plug.Conn.t(), %{id: String.t()}, %{}, %{}, nil) :: {200, %{}, nil}
+def download(conn, %{id: id}, _query, _headers, _body) do
+  path = MyApp.Files.path_for(id)
+  conn
+  |> put_resp_content_type("application/octet-stream")
+  |> send_file(200, path)
+end
+```
+
+**When a conn is returned, PhoenixSpectral passes it through without schema validation.** The typespec still documents the endpoint for the OpenAPI spec, but the actual response is your responsibility.
+
 ## Request/Response Behavior
 
 - **Invalid requests** (type mismatch, missing required fields) return `400 Bad Request` with a JSON error body listing the validation errors
@@ -155,7 +175,7 @@ end
 ## Design
 
 - **Typespecs are the single source of truth** — no separate schema definitions; `@spec` drives both docs and validation
-- **3-arity action convention** — `(path_args, headers, body)` → `{status, headers, body}`; union return types produce multiple OpenAPI response entries
+- **Action convention** — `(conn, path_args, query_params, headers, body)` → `{status, headers, body}`; union return types produce multiple OpenAPI response entries
 - **Crash on bad code, error on bad user input** — malformed typespecs raise; invalid requests return 400, encoding failures return 500
 - **Automatic encoding/decoding** — Spectral handles struct serialization
 - **Optional caching** — via `persistent_term` for production performance

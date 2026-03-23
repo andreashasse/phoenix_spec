@@ -15,15 +15,15 @@ defmodule Example.UserController do
   }
 
   spectral summary: "List users", description: "Returns all users"
-  @spec index(%{}, read_headers(), nil) :: {200, %{}, [User.t()]}
-  def index(_path_args, _headers, _body) do
+  @spec index(Plug.Conn.t(), %{}, %{}, read_headers(), nil) :: {200, %{}, [User.t()]}
+  def index(_conn, _path_args, %{}, _headers, _body) do
     {200, %{}, Map.values(@users)}
   end
 
   spectral summary: "Get user", description: "Returns a user by ID"
-  @spec show(%{id: UserId.t()}, read_headers(), nil) ::
+  @spec show(Plug.Conn.t(), %{id: UserId.t()}, %{}, read_headers(), nil) ::
           {200, %{}, User.t()} | {404, %{}, Error.t()}
-  def show(%{id: id}, _headers, _body) do
+  def show(_conn, %{id: id}, %{}, _headers, _body) do
     case Map.get(@users, id) do
       nil -> {404, %{}, %Error{message: "User #{id} not found"}}
       user -> {200, %{}, user}
@@ -31,17 +31,17 @@ defmodule Example.UserController do
   end
 
   spectral summary: "Create user", description: "Creates a new user"
-  @spec create(%{}, write_headers(), UserInput.t()) ::
+  @spec create(Plug.Conn.t(), %{}, %{}, write_headers(), UserInput.t()) ::
           {201, %{}, User.t()} | {422, %{}, Error.t()}
-  def create(_path_args, _headers, body) do
+  def create(_conn, _path_args, %{}, _headers, body) do
     new_user = %User{id: 3, name: body.name, email: body.email, created_at: DateTime.utc_now()}
     {201, %{}, new_user}
   end
 
   spectral summary: "Update user", description: "Updates an existing user by ID"
-  @spec update(%{id: UserId.t()}, write_headers(), UserInput.t()) ::
+  @spec update(Plug.Conn.t(), %{id: UserId.t()}, %{}, write_headers(), UserInput.t()) ::
           {200, %{}, User.t()} | {404, %{}, Error.t()} | {422, %{}, Error.t()}
-  def update(%{id: id}, _headers, body) do
+  def update(_conn, %{id: id}, %{}, _headers, body) do
     case Map.get(@users, id) do
       nil ->
         {404, %{}, %Error{message: "User #{id} not found"}}
@@ -53,8 +53,9 @@ defmodule Example.UserController do
   end
 
   spectral summary: "Delete user", description: "Deletes a user by ID"
-  @spec delete(%{id: UserId.t()}, write_headers(), nil) :: {204, %{}, nil}
-  def delete(_path_args, _headers, _body) do
+  @spec delete(Plug.Conn.t(), %{id: UserId.t()}, %{}, write_headers(), nil) ::
+          {204, %{}, nil}
+  def delete(_conn, _path_args, %{}, _headers, _body) do
     {204, %{}, nil}
   end
 end
