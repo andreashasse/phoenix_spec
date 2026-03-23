@@ -172,6 +172,16 @@ end
 - **Malformed typespecs** raise at runtime — the fail-fast approach surfaces bugs during development rather than silently producing broken specs
 - Only routes whose controllers `use PhoenixSpectral.Controller` appear in the generated OpenAPI spec; standard Phoenix controllers are ignored
 
+## Example
+
+The [`example/`](https://github.com/andreashasse/phoenix_spectral/tree/main/example) directory contains a complete runnable Phoenix app demonstrating a CRUD user API with path parameters, typed request headers, union return types, and an OpenAPI/Swagger UI endpoint. To run it:
+
+```bash
+cd example
+mix deps.get
+make integration-test   # starts server, runs curl checks, stops server
+```
+
 ## Design
 
 - **Typespecs are the single source of truth** — no separate schema definitions; `@spec` drives both docs and validation
