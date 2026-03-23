@@ -155,6 +155,7 @@ defmodule PhoenixSpectral.Controller do
     raw_body =
       case conn.body_params do
         %Plug.Conn.Unfetched{} -> nil
+        params when map_size(params) == 0 -> nil
         params -> params
       end
 
