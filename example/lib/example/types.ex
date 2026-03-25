@@ -23,14 +23,14 @@ defmodule Example.Types do
     @type t :: String.t()
 
     @impl Spectral.Codec
-    def encode(_format, UserId, {:type, :t, 0}, id, prefix) when is_binary(id) do
+    def encode(_format, UserId, {:type, :t, 0}, id, _sp_type, prefix) when is_binary(id) do
       {:ok, prefix <> id}
     end
 
-    def encode(_format, _module, _type_ref, _data, _params), do: :continue
+    def encode(_format, _module, _type_ref, _data, _sp_type, _params), do: :continue
 
     @impl Spectral.Codec
-    def decode(_format, UserId, {:type, :t, 0}, encoded, prefix) when is_binary(encoded) do
+    def decode(_format, UserId, {:type, :t, 0}, encoded, _sp_type, prefix) when is_binary(encoded) do
       prefix_len = byte_size(prefix)
 
       case encoded do
@@ -39,10 +39,10 @@ defmodule Example.Types do
       end
     end
 
-    def decode(_format, _module, _type_ref, _input, _params), do: :continue
+    def decode(_format, _module, _type_ref, _input, _sp_type, _params), do: :continue
 
     @impl Spectral.Codec
-    def schema(_format, UserId, {:type, :t, 0}, prefix) do
+    def schema(_format, UserId, {:type, :t, 0}, _sp_type, prefix) do
       %{type: "string", pattern: "^" <> prefix}
     end
   end
