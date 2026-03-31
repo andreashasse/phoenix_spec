@@ -46,13 +46,21 @@ end
 
 ### Step 2: Create a typed controller
 
-`use PhoenixSpectral.Controller` replaces the standard Phoenix `action(conn, params)` convention with `action(conn, path_args, query_params, headers, body)`:
+`use PhoenixSpectral.Controller` replaces the standard Phoenix `action(conn, params)` convention with five typed arguments. Each position in the `@spec` corresponds directly to a function argument:
 
-- **`conn`** — the Plug connection, for out-of-band context (`conn.assigns`, `conn.remote_ip`, etc.)
-- **`path_args`** — map of path parameters declared in the router (e.g. `%{id: 42}`), decoded from strings to the types declared in the spec
-- **`query_params`** — map of query string parameters, decoded to typed values; required keys use atom syntax (`key: type`), optional keys use arrow syntax (`optional(key) => type`)
-- **`headers`** — map of request headers, decoded from binary strings to typed values; required keys use atom syntax (`key: type`), optional keys use arrow syntax (`optional(key) => type`)
-- **`body`** — decoded and validated request body, or `nil` for requests without a body
+```
+#  arg name:   conn           path_args        query_params   headers   body
+@spec show(Plug.Conn.t(), %{id: integer()},       %{},          %{},    nil) ::
+        {200, %{}, MyApp.User.t()}
+        | {404, %{}, MyApp.Error.t()}
+def show(conn,    %{id: id},           _query,       _headers, _body), do: ...
+```
+
+- **`conn`** (`Plug.Conn.t()`) — the Plug connection, for out-of-band context (`conn.assigns`, `conn.remote_ip`, etc.)
+- **`path_args`** (map type, e.g. `%{id: integer()}`) — path parameters declared in the router, decoded from strings to the types declared in the spec
+- **`query_params`** (map type) — query string parameters, decoded to typed values; required keys use atom syntax (`key: type`), optional keys use arrow syntax (`optional(key) => type`)
+- **`headers`** (map type) — request headers, decoded from binary strings to typed values; required keys use atom syntax (`key: type`), optional keys use arrow syntax (`optional(key) => type`)
+- **`body`** (a Spectral struct type, or `nil`) — decoded and validated request body, or `nil` for requests without a body
 
 > **Note:** Use `conn` only for context that isn't already captured in the typed arguments — primarily `conn.assigns` (auth data from upstream plugs), `conn.remote_ip`, `conn.host`, or `conn.method`. Do not read `conn.path_params`, `conn.query_params`, `conn.req_headers`, or `conn.body_params` directly; use the decoded and validated arguments instead.
 
