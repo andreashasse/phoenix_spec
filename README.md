@@ -46,14 +46,13 @@ end
 
 ### Step 2: Create a typed controller
 
-`use PhoenixSpectral.Controller` replaces the standard Phoenix `action(conn, params)` convention with five typed arguments. Each position in the `@spec` corresponds directly to a function argument:
+`use PhoenixSpectral.Controller` replaces the standard Phoenix `action(conn, params)` convention with five typed arguments:
 
-```
-#  arg name:   conn           path_args        query_params   headers   body
-@spec show(Plug.Conn.t(), %{id: integer()},       %{},          %{},    nil) ::
+```elixir
+@spec show(Plug.Conn.t(), %{id: integer()}, %{}, %{}, nil) ::
         {200, %{}, MyApp.User.t()}
         | {404, %{}, MyApp.Error.t()}
-def show(conn,    %{id: id},           _query,       _headers, _body), do: ...
+def show(conn, %{id: id}, _query, _headers, _body), do: ...
 ```
 
 - **`conn`** (`Plug.Conn.t()`) — the Plug connection, for out-of-band context (`conn.assigns`, `conn.remote_ip`, etc.)
