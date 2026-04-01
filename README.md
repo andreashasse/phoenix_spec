@@ -46,7 +46,7 @@ end
 
 ### Step 2: Create a typed controller
 
-`use PhoenixSpectral.Controller` replaces the standard Phoenix `action(conn, params)` convention with five typed arguments:
+`use PhoenixSpectral.Controller` replaces the standard Phoenix `action(conn, params)` convention with five typed arguments. The four request inputs are kept separate rather than merged into one `params` map: the body can be a typed struct, which cannot be merged into a flat map alongside path args and query params without losing its type, and the OpenAPI generator needs to know where each field comes from — path, query, header, or body — to produce a correct spec.
 
 ```elixir
 @spec show(Plug.Conn.t(), %{id: integer()}, %{}, %{}, nil) ::
