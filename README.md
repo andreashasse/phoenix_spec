@@ -52,14 +52,14 @@ end
 @spec show(Plug.Conn.t(), %{id: integer()}, %{}, %{}, nil) ::
         {200, %{}, MyApp.User.t()}
         | {404, %{}, MyApp.Error.t()}
-def show(conn, %{id: id}, _query, _headers, _body), do: ...
+def show(conn, %{id: id}, _query_params, _headers, _body), do: ...
 ```
 
 - **`conn`** (`Plug.Conn.t()`) — the Plug connection, for out-of-band context (`conn.assigns`, `conn.remote_ip`, etc.)
 - **`path_args`** (map, e.g. `%{id: integer()}`) — path parameters declared in the router, decoded from strings to the types declared in the spec
 - **`query_params`** (map) — query string parameters, decoded to typed values; required keys use atom syntax (`key: type`), optional keys use arrow syntax (`optional(key) => type`)
 - **`headers`** (map) — request headers, decoded from binary strings to typed values; required keys use atom syntax (`key: type`), optional keys use arrow syntax (`optional(key) => type`)
-- **`body`** (any Elixir type (eg, a struct), or `nil`) — decoded and validated request body, or `nil` for requests without a body
+- **`body`** (any Elixir type (e.g., a struct), or `nil`) — decoded and validated request body, or `nil` for requests without a body
 
 > **Note:** Use `conn` only for context that isn't already captured in the typed arguments — primarily `conn.assigns` (auth data from upstream plugs), `conn.remote_ip`, `conn.host`, or `conn.method`. Do not read `conn.path_params`, `conn.query_params`, `conn.req_headers`, or `conn.body_params` directly; use the decoded and validated arguments instead.
 
