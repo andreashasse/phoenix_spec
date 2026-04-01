@@ -137,7 +137,9 @@ defmodule PhoenixSpectral.Controller do
 
   def dispatch(conn, controller, action) do
     type_info = controller.__spectra_type_info__()
-    {path_args_type, query_params_type, headers_type, body_type} = lookup_action_types(type_info, action)
+
+    {path_args_type, query_params_type, headers_type, body_type} =
+      lookup_action_types(type_info, action)
 
     with {:ok, path_args} <- decode_path_args(conn, type_info, path_args_type, controller, action),
          {:ok, query_params} <- decode_query_params(conn, type_info, query_params_type),
