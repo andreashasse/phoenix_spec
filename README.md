@@ -52,7 +52,7 @@ end
 @spec update(Plug.Conn.t(), %{id: integer()}, %{}, %{}, MyApp.User.t()) ::
         {200, %{}, MyApp.User.t()}
         | {404, %{}, MyApp.Error.t()}
-def update(_conn, %{id: id}, _query_params, _headers, user), do: ...
+def update(_conn, %{id: id}, _query_params, _headers, body), do: ...
 ```
 
 - **`conn`** (`Plug.Conn.t()`) — the Plug connection, for out-of-band context (`conn.assigns`, `conn.remote_ip`, etc.)
